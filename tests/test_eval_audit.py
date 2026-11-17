@@ -282,6 +282,63 @@ def test_derived_evidence_left_alone_when_a_source_is_rejected():
     assert out.derived_recomputed == []
 
 
+def interleaved_set() -> list[Question]:
+    """Derived rows laid out like `gold.evidence.propagate`: own page first, then sources."""
+    return [
+        make("q1", evidence=[ev("akbank-2024", 10), ev("akbank-2024", 11)]),
+        make("q2", evidence=[ev("garanti-2024", 20), ev("garanti-2024", 21)]),
+        make(
+            "q4",
+            type="karsilastirma",
+            derived_from=["q1", "q2"],
+            # set-equal to the union of q1+q2, but not in its order
+            evidence=[
+                ev("garanti-2024", 20),
+                ev("akbank-2024", 10),
+                ev("garanti-2024", 21),
+                ev("akbank-2024", 11),
+            ],
+        ),
+        make(
+            "q5",
+            type="karsilastirma",
+            derived_from=["q1", "q2"],
+            evidence=[ev("garanti-2024", 20), ev("akbank-2024", 10)],  # a subset: not a union
+        ),
+        make(
+            "q6",
+            type="karsilastirma",
+            derived_from=["q1", "q2"],
+            evidence=[ev("akbank-2024", 11), ev("garanti-2024", 20), ev("akbank-2024", 10),
+                      ev("garanti-2024", 21)],  # fmt: skip
+        ),
+    ]
+
+
+def test_set_union_derived_row_keeps_its_order_drops_removed_and_appends_new_pages():
+    out = apply_decisions(
+        interleaved_set(),
+        decisions(
+            decision("q1", "pass", remove=[ev("akbank-2024", 11)]),
+            decision(
+                "q2",
+                "fix",
+                set={"evidence": [ev("garanti-2024", 20), ev("garanti-2024", 22)]},
+                reason="p21 does not state it; p22 does",
+            ),
+            decision("q6", "flag", reason="needs a human"),
+        ),
+        date=DAY,
+    )
+    q = by_id(out.questions)
+    pages = [(e.doc, e.page) for e in q["q4"].evidence]
+    assert pages == [("garanti-2024", 20), ("akbank-2024", 10), ("garanti-2024", 22)]
+    assert q["q5"].evidence == by_id(interleaved_set())["q5"].evidence  # not a union
+    assert q["q6"].evidence == by_id(interleaved_set())["q6"].evidence  # flagged: unchanged
+    assert q["q6"].audit.status == "flagged"
+    assert out.derived_recomputed == ["q4"]
+
+
 # --- idempotence and file level ------------------------------------------------------
 
 REAL_SHAPE = [

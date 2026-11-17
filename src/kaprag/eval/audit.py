@@ -14,9 +14,13 @@ Per question:
 - `reject`: the row moves to `rejected.jsonl` next to the questions file (the review
   app's file), the reason appended to `notes`.
 
-Then every remaining derived question (`derived_from` non-empty) whose current
-evidence equals the ordered, de-duplicated union of its sources' ORIGINAL evidence is
-recomputed as the union of their FINAL evidence, when every source is still present.
+Then every remaining derived question (`derived_from` non-empty, not flagged) whose
+current evidence equals, as a SET of `(doc, page)`, the union of its sources' ORIGINAL
+evidence is recomputed from their FINAL evidence, when every source is still present:
+the row keeps its own order of the pages still in the final union (so its first entry
+stays first where possible) and the final union's new pages are appended. The set
+rule matters because `kaprag.gold.evidence.propagate` puts the derived draft's own
+page first, so a union-built row is rarely in the sources' order.
 
 An audit is an agent's statement, not human verification: nothing here sets
 `verified`/`verified_at`, and rows that are verified or written by a human are never
@@ -145,6 +149,10 @@ def _union(lists: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
     return list(seen.values())
 
 
+def _keys(evidence: list[dict[str, Any]]) -> set[EvidenceKey]:
+    return {(e["doc"], e["page"]) for e in evidence}
+
+
 def _validate(data: dict[str, Any]) -> Question:
     try:
         return Question.model_validate(data)
@@ -244,11 +252,15 @@ def apply_decisions(
         sources = q.derived_from
         if not sources or not all(s in current and s in original for s in sources):
             continue
+        if q.audit is not None and q.audit.status == "flagged":
+            continue  # a flagged row stays unchanged apart from its audit
         evidence = q.model_dump(mode="json")["evidence"]
         was_union = _union([original[s].model_dump(mode="json")["evidence"] for s in sources])
-        if evidence != was_union:
+        if _keys(evidence) != _keys(was_union):
             continue
-        final = _union([current[s].model_dump(mode="json")["evidence"] for s in sources])
+        final_union = _union([current[s].model_dump(mode="json")["evidence"] for s in sources])
+        final_keys = _keys(final_union)
+        final = _union([[e for e in evidence if (e["doc"], e["page"]) in final_keys], final_union])
         if final == evidence:
             continue
         if why := _protected(q):
