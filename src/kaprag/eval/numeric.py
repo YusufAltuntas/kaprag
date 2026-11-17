@@ -123,21 +123,55 @@ def _to_plain(s: str, original: str) -> str:
 
 # --- units -----------------------------------------------------------------
 
-_SCALES = {
-    "bin": Decimal(10) ** 3,
-    "milyon": Decimal(10) ** 6,
-    "mn": Decimal(10) ** 6,
-    "mio": Decimal(10) ** 6,
-    "milyar": Decimal(10) ** 9,
-    "mlr": Decimal(10) ** 9,
-    "trilyon": Decimal(10) ** 12,
-    "trn": Decimal(10) ** 12,
-}
-_CURRENCY = {"tl", "try"}
-_COUNT_NOUNS = {"adet", "tane", "şube", "kişi", "çalışan", "personel", "müşteri", "atm"}
-_PERCENT_WORDS = {"yüzde", "puan"}  # "puan" = percentage points
-_BPS_WORDS = {"bp", "bps"}  # basis points -> % / 100
-_PHRASES = (("türk lirası", "tl"), ("baz puan", "bp"), ("yüzde puan", "puan"))
+# Unit words are matched on a folded key (see `_key`): lower case, Turkish letters
+# mapped to ASCII, so "MILYAR", "MİLYAR", "çalışan" and "calisan" all match.
+_ASCII = str.maketrans({"ı": "i", "ş": "s", "ç": "c", "ğ": "g", "ö": "o", "ü": "u", "̇": ""})
+# Punctuation around unit words, e.g. "(Bin TL)" column headers or "milyar TL.".
+_PUNCTUATION = str.maketrans(dict.fromkeys("()[]{},.;:'\"", " "))
+
+_SCALE, _CURRENCY, _COUNT, _PERCENT, _BPS = "scale", "TL", "adet", "%", "bps"
+_UNIT_ENTRIES: tuple[tuple[str, str, Decimal], ...] = (
+    ("bin", _SCALE, Decimal(10) ** 3),
+    ("milyon", _SCALE, Decimal(10) ** 6),
+    ("mn", _SCALE, Decimal(10) ** 6),
+    ("mio", _SCALE, Decimal(10) ** 6),
+    ("milyar", _SCALE, Decimal(10) ** 9),
+    ("mlr", _SCALE, Decimal(10) ** 9),
+    ("trilyon", _SCALE, Decimal(10) ** 12),
+    ("trn", _SCALE, Decimal(10) ** 12),
+    ("tl", _CURRENCY, Decimal(1)),
+    ("try", _CURRENCY, Decimal(1)),
+    ("adet", _COUNT, Decimal(1)),
+    ("tane", _COUNT, Decimal(1)),
+    ("sube", _COUNT, Decimal(1)),
+    ("kisi", _COUNT, Decimal(1)),
+    ("calisan", _COUNT, Decimal(1)),
+    ("personel", _COUNT, Decimal(1)),
+    ("musteri", _COUNT, Decimal(1)),
+    ("atm", _COUNT, Decimal(1)),
+    ("yuzde", _PERCENT, Decimal(1)),
+    ("puan", _PERCENT, Decimal(1)),  # percentage points
+    ("bp", _BPS, Decimal("0.01")),  # basis points -> %
+    ("bps", _BPS, Decimal("0.01")),
+)
+
+
+def _build_vocabulary() -> dict[str, tuple[str, Decimal]]:
+    vocabulary: dict[str, tuple[str, Decimal]] = {}
+    for word, kind, multiplier in _UNIT_ENTRIES:
+        if word in vocabulary:
+            raise AssertionError(f"duplicate unit word {word!r} after folding")
+        vocabulary[word] = (kind, multiplier)
+    return vocabulary
+
+
+_UNIT_VOCABULARY = _build_vocabulary()
+# Multi-word phrases, on folded keys, rewritten to one vocabulary word.
+_PHRASES = (
+    (re.compile(r"\bturk lirasi\b"), "tl"),
+    (re.compile(r"\bbaz puan\b"), "bp"),
+    (re.compile(r"\byuzde puan\b"), "puan"),
+)
 
 
 def _fold(text: str) -> str:
@@ -145,42 +179,45 @@ def _fold(text: str) -> str:
     return text.replace("İ", "i").replace("I", "ı").lower()
 
 
+def _key(text: str) -> str:
+    """Folded, ASCII-only form used to match unit words: `MILYAR`/`MİLYAR` -> `milyar`."""
+    return _fold(text).translate(_ASCII)
+
+
 def _unit_from_words(
     words: list[str], percent_sign: bool, original: str
 ) -> tuple[Decimal, str | None]:
-    """Return (multiplier, canonical unit) for the unit words around a number."""
+    """Return (multiplier, canonical unit) for the (folded) unit words around a number."""
     multiplier = Decimal(1)
     kinds: set[str] = {"%"} if percent_sign else set()
     scaled = False
     for word in words:
-        if word in _SCALES:
+        if word not in _UNIT_VOCABULARY:
+            raise NumericParseError(f"unknown unit {word!r} in {original!r}")
+        kind, factor = _UNIT_VOCABULARY[word]
+        if kind == _SCALE:
             if scaled:
                 raise NumericParseError(f"more than one scale word in {original!r}")
-            multiplier *= _SCALES[word]
             scaled = True
-        elif word in _CURRENCY:
-            kinds.add("TL")
-        elif word in _COUNT_NOUNS:
-            kinds.add("adet")
-        elif word in _PERCENT_WORDS:
-            kinds.add("%")
-        elif word in _BPS_WORDS:
-            kinds.add("%")
-            multiplier /= 100
         else:
-            raise NumericParseError(f"unknown unit {word!r} in {original!r}")
+            kinds.add("%" if kind == _BPS else kind)
+        multiplier *= factor
     if len(kinds) > 1:
         raise NumericParseError(f"conflicting units {sorted(kinds)} in {original!r}")
     return multiplier, (kinds.pop() if kinds else None)
 
 
 def _unit_words(text: str) -> tuple[list[str], bool]:
-    """Split folded unit text into words; also report whether a % sign was present."""
-    s = _fold(text).replace("₺", " tl ")
+    """Split unit text into folded words; also report whether a % sign was present.
+
+    Surrounding punctuation is dropped, so `(Bin TL)`, `milyar TL.` and `TL, milyar`
+    read as plain unit words.
+    """
+    s = _key(text).replace("₺", " tl ").translate(_PUNCTUATION)
     percent_sign = "%" in s
-    s = s.replace("%", " ")
-    for phrase, token in _PHRASES:
-        s = s.replace(phrase, token)
+    s = " ".join(s.replace("%", " ").split())
+    for pattern, token in _PHRASES:
+        s = pattern.sub(token, s)
     return s.split(), percent_sign
 
 

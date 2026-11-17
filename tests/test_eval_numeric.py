@@ -141,6 +141,106 @@ def test_normalize_rejects_unknown_or_scale_only_units(unit):
         normalize(3.5, unit)
 
 
+@pytest.mark.parametrize(
+    ("unit", "multiplier", "canonical"),
+    [
+        # financial-statement headers, punctuation, Turkish/ASCII capital I
+        ("(Bin TL)", "1000", "TL"),
+        ("(bin TL)", "1000", "TL"),
+        ("[Bin TL]", "1000", "TL"),
+        ("Bin TL", "1000", "TL"),
+        ("BİN TL", "1000", "TL"),
+        ("BIN TL", "1000", "TL"),
+        ("milyar TL.", "1000000000", "TL"),
+        ("TL, milyar", "1000000000", "TL"),
+        ("MILYAR TL", "1000000000", "TL"),
+        ("MİLYAR TL", "1000000000", "TL"),
+        ("milyon ₺", "1000000", "TL"),
+        ("Milyon TL", "1000000", "TL"),
+        ("milyon TL;", "1000000", "TL"),
+        ('"TL"', "1", "TL"),
+        ("TÜRK LİRASI", "1", "TL"),
+        ("turk lirasi", "1", "TL"),
+        ("%", "1", "%"),
+        ("(%)", "1", "%"),
+        ("yüzde", "1", "%"),
+        ("YÜZDE", "1", "%"),
+        ("yuzde", "1", "%"),
+        ("Yüzde Puan", "1", "%"),
+        ("Baz Puan", "0.01", "%"),
+        # count nouns: dotted / dotless / ASCII spellings
+        ("şube", "1", "adet"),
+        ("ŞUBE", "1", "adet"),
+        ("sube", "1", "adet"),
+        ("kişi", "1", "adet"),
+        ("KİŞİ", "1", "adet"),
+        ("KISI", "1", "adet"),
+        ("kisi", "1", "adet"),
+        ("çalışan", "1", "adet"),
+        ("ÇALIŞAN", "1", "adet"),
+        ("calisan", "1", "adet"),
+        ("CALISAN", "1", "adet"),
+        ("müşteri", "1", "adet"),
+        ("MÜŞTERİ", "1", "adet"),
+        ("musteri", "1", "adet"),
+        ("ADET", "1", "adet"),
+        ("Tane", "1", "adet"),
+        ("Personel", "1", "adet"),
+        ("ATM", "1", "adet"),
+        ("milyon müşteri", "1000000", "adet"),
+    ],
+)
+def test_normalize_accepts_unit_spellings(unit, multiplier, canonical):
+    assert normalize(2, unit) == Quantity(2 * Decimal(multiplier), canonical)
+
+
+@pytest.mark.parametrize(
+    "text", ["5 (Bin TL)", "5 bin TL.", "5 BIN TL", "5 MILYAR TL", "12 ŞUBE", "12 calisan"]
+)
+def test_parse_quantity_accepts_unit_spellings(text):
+    assert parse_quantity(text).unit in ("TL", "adet")
+
+
+@pytest.mark.parametrize(
+    "unit",
+    [
+        "USD",
+        "elma",
+        "(USD)",
+        "dolar.",
+        "milyar dolar",
+        "TL USD",
+        "milyar milyon TL",
+        "bin, milyon",
+        "TL %",
+        "şube TL",
+        "mılyon_TL",
+        "binTL",
+    ],
+)
+def test_unknown_or_conflicting_units_still_fail(unit):
+    with pytest.raises(NumericParseError):
+        normalize(3, unit)
+
+
+def test_unit_vocabulary_has_no_collisions_after_folding():
+    from kaprag.eval.numeric import _UNIT_VOCABULARY
+
+    # every folded key maps to exactly one meaning (dict construction would hide dups)
+    assert len(_UNIT_VOCABULARY) == len(set(_UNIT_VOCABULARY))
+    assert {"bin", "milyon", "milyar", "trilyon", "tl", "adet", "yuzde", "puan"} <= set(
+        _UNIT_VOCABULARY
+    )
+
+
+def test_compare_folds_units_on_both_sides():
+    assert compare(5, "(Bin TL)", 5000, "TL", "rel", 0.01).correct
+    assert compare(5, "MILYAR TL", 5_000_000_000, "TL", "rel", 0.01).correct
+    assert compare(12, "ŞUBE", 12, "adet", "abs", 0).correct
+    assert compare(12.5, "(%)", 12.5, "%", "abs", 0.2).correct
+    assert not compare(5, "(Bin TL)", 5000, "%", "abs", 0.2).correct
+
+
 def test_normalize_rejects_bool_and_nan():
     with pytest.raises(NumericParseError):
         normalize(True, "TL")
