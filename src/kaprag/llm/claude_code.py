@@ -19,6 +19,8 @@ from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
     ClaudeSDKError,
+    RateLimitEvent,
+    ResultError,
     ResultMessage,
     TextBlock,
 )
@@ -27,7 +29,7 @@ from kaprag.llm.types import BackendError, BackendResponse, TransientBackendErro
 
 QueryFn = Callable[..., AsyncIterator[Any]]
 
-# HTTP statuses / assistant error kinds that mean "back off and try again".
+# Signals that mean "back off and try again" (see _is_transient).
 _TRANSIENT_STATUSES = {429, 500, 502, 503, 504, 529}
 _TRANSIENT_KINDS = {"rate_limit", "server_error"}
 
@@ -76,6 +78,7 @@ class ClaudeCodeBackend:
 
         texts: list[str] = []
         error_kind: str | None = None
+        limit_rejected = False
         result: ResultMessage | None = None
         try:
             async for message in self._query_fn(
@@ -86,21 +89,55 @@ class ClaudeCodeBackend:
                         error_kind = message.error
                     if message.parent_tool_use_id is None:
                         texts.extend(b.text for b in message.content if isinstance(b, TextBlock))
+                elif isinstance(message, RateLimitEvent):
+                    limit_rejected = message.rate_limit_info.status == "rejected"
                 elif isinstance(message, ResultMessage):
                     result = message
+        except ResultError as exc:
+            # The real SDK path for a failed run: the CLI emits an is_error
+            # result, exits non-zero, and the SDK raises ResultError carrying it.
+            detail = (
+                f"subtype={exc.subtype} status={exc.api_error_status} "
+                f"terminal_reason={exc.terminal_reason} error={error_kind} "
+                f"limit_rejected={limit_rejected} errors={exc.errors} result={exc.result!r}"
+            )
+            if _is_transient(exc.api_error_status, exc.terminal_reason, error_kind, limit_rejected):
+                raise TransientBackendError(f"Claude Code transient error: {detail}") from exc
+            raise BackendError(f"Claude Code error: {detail}") from exc
         except ClaudeSDKError as exc:
             raise BackendError(f"Claude Agent SDK error: {exc}") from exc
 
         if result is None:
             raise BackendError("Claude Code returned no result message")
         if result.is_error or error_kind:
+            # Defensive: an error result that did not end in ResultError.
             detail = (
                 f"subtype={result.subtype} status={result.api_error_status} "
-                f"error={error_kind} errors={result.errors} result={result.result!r}"
+                f"terminal_reason={result.terminal_reason} error={error_kind} "
+                f"limit_rejected={limit_rejected} errors={result.errors} "
+                f"result={result.result!r}"
             )
-            if result.api_error_status in _TRANSIENT_STATUSES or error_kind in _TRANSIENT_KINDS:
+            if _is_transient(
+                result.api_error_status, result.terminal_reason, error_kind, limit_rejected
+            ):
                 raise TransientBackendError(f"Claude Code transient error: {detail}")
             raise BackendError(f"Claude Code error: {detail}")
 
         text = result.result if result.result is not None else "".join(texts)
         return BackendResponse(text=text, usage=Usage.from_mapping(result.usage))
+
+
+def _is_transient(
+    status: int | None, terminal_reason: str | None, error_kind: str | None, limit_rejected: bool
+) -> bool:
+    """Classify a failed run as retryable.
+
+    Transient: HTTP 429/5xx/529; an assistant error of `rate_limit` or
+    `server_error`; a rate_limit_event with status `rejected` (subscription
+    usage limit); or `terminal_reason == "api_error"` with no HTTP status
+    (timeout / connection failure). Everything else (other 4xx, billing or
+    authentication errors, max-turns, execution errors) is not retried.
+    """
+    if status in _TRANSIENT_STATUSES or error_kind in _TRANSIENT_KINDS or limit_rejected:
+        return True
+    return terminal_reason == "api_error" and status is None and error_kind is None
