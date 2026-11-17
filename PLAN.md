@@ -108,6 +108,7 @@ Sabah raporunu doldur.
 | 2026-11-17 | README TR + EN; kod yorumları ve commit'ler İngilizce | Kullanıcı tercihi |
 | 2026-11-17 | Gece oturumu Fable 5.2 orkestratör + `subagent-driven-development`; alt agent'lar varsayılan `opus`; `main`'de, worktree'siz | Kullanıcı tercihi; git dışı veri/.env/Docker volume worktree'de olmadığı için |
 | 2026-11-17 | CI: GitHub Actions (T0). Langfuse: JSONL trace'lerin sonradan aktarımı (T14, P2). LiteLLM ve LangChain şimdilik yok | Kullanıcı tercihi; ablation için pipeline adımları elle yazılı kalır; LiteLLM `claude_code` backend'ini desteklemiyor |
+| 2026-11-17 | T0 ortam kontrolü: `nvidia-smi` RTX 3050 Laptop 4 GB, sürücü 591.74, CUDA 13.1; `docker info` Server 27.5.1 (Docker Desktop); uv 0.13.9; Python 3.11.2; `claude -p "merhaba" --model claude-haiku-5-5` Türkçe cevap verdi, `ANTHROPIC_API_KEY` boş. torch: `ml` grubunda `pytorch-cu130` index'i yalnızca Windows/Linux'a marker'la bağlı (macOS PyPI'dan) → torch 2.14.1+cu130, `torch.cuda.is_available()` True. Build backend hatchling, `dev-mode-exact` + dev'de `editables` | cu130 sürücünün (CUDA 13.1) desteklediği en yeni PyTorch CUDA wheel'i; cu132 sürücü sürümünü aşıyor. Python 3.11 `.pth` dosyalarını yerel kodlamayla (cp1254) okuduğu için repo yolundaki `ş` düz editable kurulumu bozuyordu; exact mod yolu UTF-8 `.py` dosyasında tutuyor. uv'nin yönettiği Python 3.13 bu yolda kurulamadı (minor-version link hatası) |
 
 ## Engeller
 
