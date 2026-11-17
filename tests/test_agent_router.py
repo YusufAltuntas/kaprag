@@ -528,6 +528,84 @@ def test_access_role_applies_to_every_lookup(tmp_dir):
     assert output.debug["access"]["source"] == "config"
 
 
+class AccessOnlyRetriever(FakeRetriever):
+    """Also accepts a filter with only the access condition (the simple fallback with a
+    role and no query filter), recording the filter as given."""
+
+    def retrieve(self, question, k, where=None):
+        meta = where if isinstance(where, SqlFilter) and len(where.params) >= 2 else None
+        ranked = super().retrieve(question, k, meta)
+        with self.lock:
+            self.calls[-1]["where"] = where
+        return ranked
+
+
+def where_values(call):
+    return list(call["where"].params.values())
+
+
+def test_caller_role_applies_to_every_lookup_without_a_config_access_block(tmp_dir):
+    backend = Backend(plan=MAX_PLAN, sub=MAX_SUB)
+    pipeline, retriever = make(tmp_dir, backend)  # params have no `access` block
+    output = run(pipeline, access_role="public")
+    assert output.debug["route"] == "multi"
+    assert len(retriever.calls) == 2
+    assert sorted(where_values(c) for c in retriever.calls) == [
+        [["akbank"], [2024], ["public"]],
+        [["garanti"], [2024], ["public"]],
+    ]
+    assert all(len(c["where"].conditions) == 3 for c in retriever.calls)
+    assert output.debug["access"] == {
+        "role": "public",
+        "effective_roles": ["public"],
+        "source": "caller",
+    }
+
+
+def test_caller_role_overrides_the_config_role_on_every_lookup(tmp_dir):
+    backend = Backend(plan=MAX_PLAN, sub=MAX_SUB)
+    params = {"rag": {**RAG, "access": {"role": "public"}}}
+    pipeline, retriever = make(tmp_dir, backend, params=params)
+    output = run(pipeline, access_role="analyst")
+    assert sorted(where_values(c) for c in retriever.calls) == [
+        [["akbank"], [2024], ["public", "analyst"]],
+        [["garanti"], [2024], ["public", "analyst"]],
+    ]
+    assert output.debug["access"]["role"] == "analyst"
+    assert output.debug["access"]["source"] == "caller"
+
+
+@pytest.mark.parametrize(
+    ("route", "plan", "fallback"),
+    [
+        (BackendError("boom"), None, "classify_error"),
+        ("multi", {"expressible": False, "reason": "ortalama işlemi yok"}, "inexpressible"),
+        ("multi", BackendError("down"), "decompose_error"),
+    ],
+)
+def test_caller_role_applies_to_the_simple_fallback(tmp_dir, route, plan, fallback):
+    backend = Backend(route=route, plan=plan)
+    pipeline, retriever = make(tmp_dir, backend, retriever=AccessOnlyRetriever())
+    output = run(pipeline, access_role="analyst")
+    assert output.debug["route"] == "simple"
+    assert output.debug["router"]["fallback"] == fallback
+    assert len(retriever.calls) == 1
+    assert where_values(retriever.calls[0]) == [["public", "analyst"]]
+    assert output.debug["access"]["source"] == "caller"
+
+
+def test_without_any_role_lookups_carry_only_bank_and_year(tmp_dir):
+    backend = Backend(plan=MAX_PLAN, sub=MAX_SUB)
+    pipeline, retriever = make(tmp_dir, backend)
+    output = run(pipeline)
+    assert sorted(where_values(c) for c in retriever.calls) == [
+        [["akbank"], [2024]],
+        [["garanti"], [2024]],
+    ]
+    assert all(len(c["where"].conditions) == 2 for c in retriever.calls)
+    assert "access" not in output.debug
+
+
 def test_unknown_caller_role_is_refused_before_any_work(tmp_dir):
     backend = Backend()
     pipeline, retriever = make(tmp_dir, backend)
