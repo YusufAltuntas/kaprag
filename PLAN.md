@@ -314,7 +314,7 @@ Her adım bir öncekinin üstüne eklenir ve dev'de ayrı bir run'dır:
 - **Commit:** `feat: add role-based access filtering and leak test`
 
 ### Task T12 — Final koşu ve README (P1)
-- [ ] Tamamlandı
+- [x] Tamamlandı
 - Baseline ve en iyi konfigürasyonu test split'inde **bir kez** çalıştır.
 - `README.md` (TR) ve `README.en.md` (EN): problem, mimari (mermaid diyagramı), Windows/macOS hızlı başlangıç, ablation tablosu ve üstünde açık bir **"Taslak — doğrulanmamış gold set"** uyarısı, sınırlamalar (simüle ACL, aynı aileden judge, geliştirmede abonelik backend'i).
 - **Commit:** `docs: add README with architecture and draft ablation results`
