@@ -168,7 +168,9 @@ def test_new_folder_files_and_metadata(env):
 
     cfg = yaml.safe_load((result.run_dir / "config.yaml").read_text(encoding="utf-8"))
     original = yaml.safe_load((env["run_dir"] / "config.yaml").read_text(encoding="utf-8"))
-    assert {k: v for k, v in cfg.items() if k != "rescore"} == original
+    assert {k: v for k, v in cfg.items() if k not in ("rescore", "run")} == {
+        k: v for k, v in original.items() if k != "run"
+    }
     block = cfg["rescore"]
     assert block["original_run_id"] == "2026-11-17-unit-dev"
     assert block["original_questions_sha256"] == original["run"]["questions_sha256"]
@@ -176,6 +178,15 @@ def test_new_folder_files_and_metadata(env):
     assert block["date"] == "2026-11-18"
     assert block["n_original"] == block["n_scored"] == 11
     assert result.summary["rescore"] == block
+
+    # the run block names the gold version actually scored against
+    for run in (cfg["run"], result.summary["run"]):
+        assert run["questions_sha256"] == sha
+        assert run["n_questions"] == 11
+        assert run["questions_path"] == "tests/fixtures/eval/questions.jsonl"
+        assert run["run_id"] == original["run"]["run_id"]
+    assert block["original_n_questions"] == original["run"]["n_questions"]
+    assert block["original_questions_path"] == original["run"]["questions_path"]
 
     second = rescore(env, FIXTURE)
     assert second.run_dir.name == "2026-11-17-unit-dev-rescored-2"
@@ -299,3 +310,31 @@ def test_cli_on_a_test_split_run_with_fake_judge(tmp_dir, capsys):
     [new] = (tmp_dir / "o").iterdir()
     assert new.name == "2026-11-17-unit-test-rescored"
     assert main(["--run", str(tmp_dir / "nope"), "--questions", str(FIXTURE)]) == 1
+
+
+def test_changed_gold_run_block_carries_current_hash_and_count(env):
+    gold = edited_gold(env["tmp"], {}, drop=("f003",))
+    result = rescore(env, gold)
+    sha = hashlib.sha256(gold.read_bytes()).hexdigest()
+    original = yaml.safe_load((env["run_dir"] / "config.yaml").read_text(encoding="utf-8"))
+    run = result.summary["run"]
+    assert (run["questions_sha256"], run["n_questions"]) == (sha, 10)
+    block = result.summary["rescore"]
+    assert block["original_questions_sha256"] == original["run"]["questions_sha256"] != sha
+    assert block["original_n_questions"] == 11
+
+
+def test_failed_rescore_leaves_no_folder(env):
+    broken = env["tmp"] / "broken"
+    broken.mkdir()
+    for name in ("config.yaml", "summary.json", "traces.jsonl", "README.md"):
+        (broken / name).write_bytes((env["run_dir"] / name).read_bytes())
+    rows = read_jsonl(env["run_dir"] / "results.jsonl")
+    rows[0]["answer"] = {"not": "an answer"}  # a stored output that cannot be scored
+    (broken / "results.jsonl").write_text(
+        "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8"
+    )
+    out = env["tmp"] / "out"
+    with pytest.raises(ValueError):
+        rescore_run(broken, questions_path=FIXTURE, runs_dir=out, llm_factory=env["factory"])
+    assert not out.exists() or not any(out.iterdir())

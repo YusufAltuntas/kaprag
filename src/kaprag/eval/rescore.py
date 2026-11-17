@@ -20,13 +20,16 @@ wording); gold questions of the split the run did not contain are only reported.
 
 Output: a NEW folder `<runs_dir>/<original-name>-rescored[-N]/` with `README.md`,
 `config.yaml` (original config + a `rescore` block), `results.jsonl` and
-`summary.json`. The original folder is only read.
+`summary.json`. The `run` block of both names the CURRENT gold file, its sha256 and
+the re-scored question count; the original values are in the `rescore` block. The
+folder is created only after scoring succeeded. The original folder is only read.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -157,7 +160,7 @@ async def rescore_run_async(
         [q.id for q in select_questions(questions, split) if q.id not in in_run] if split else []
     )
 
-    new_dir = _make_dir(Path(runs_dir), f"{original.run_dir.name}-rescored")
+    base_name = f"{original.run_dir.name}-rescored"
     with tempfile.TemporaryDirectory(prefix="kaprag-rescore-") as tmp:
         llm = _LazyLLM(llm_factory, Path(tmp) / "llm-trace.jsonl")
         get_judge = make_judge_getter(config, llm)
@@ -166,7 +169,7 @@ async def rescore_run_async(
         async def score(q: Question, row: dict[str, Any]):
             async with semaphore:
                 return await score_output(
-                    q, _stored_output(row), get_judge, tags={"run": new_dir.name, "qid": q.id}
+                    q, _stored_output(row), get_judge, tags={"run": base_name, "qid": q.id}
                 )
 
         scored = await asyncio.gather(*(score(q, row) for q, row in kept))
@@ -197,7 +200,9 @@ async def rescore_run_async(
     rescore_meta = {
         "note": "re-scoring of stored outputs against the current gold file; no pipeline was run",
         "original_run_id": original.run_dir.name,
+        "original_questions_path": run_meta.get("questions_path"),
         "original_questions_sha256": run_meta.get("questions_sha256"),
+        "original_n_questions": run_meta.get("n_questions"),
         "questions_path": _display_path(questions_path),
         "questions_sha256": current_sha,
         "date": (today or date.today()).isoformat(),
@@ -210,8 +215,16 @@ async def rescore_run_async(
         "judge_calls_fresh": fresh,
         "judge_calls_cached": len(judge_calls) - fresh,
     }
+    # The run block names the gold version and question count actually scored against
+    # (consumers such as the Langfuse export read it); the original values stay in the
+    # rescore block.
+    current = {
+        "questions_path": rescore_meta["questions_path"],
+        "questions_sha256": current_sha,
+        "n_questions": len(results),
+    }
     summary = {
-        "run": original.summary.get("run", {}),
+        "run": {**original.summary.get("run", {}), **current},
         "rescore": rescore_meta,
         **summarize(results),
         "judge": judge_summary(config, results)
@@ -219,15 +232,34 @@ async def rescore_run_async(
         "unattributed_llm_calls": original.summary.get("unattributed_llm_calls"),
     }
 
+    config_out = {**original.config, "run": {**run_meta, **current}, "rescore": rescore_meta}
+    # Created only now, after scoring succeeded; removed again if writing fails.
+    new_dir = _make_dir(Path(runs_dir), base_name)
+    try:
+        _write_folder(new_dir, original.run_dir.name, config_out, results, summary)
+    except BaseException:
+        shutil.rmtree(new_dir, ignore_errors=True)
+        raise
+    return RescoreResult(run_dir=new_dir, summary=summary)
+
+
+def _write_folder(
+    new_dir: Path,
+    original_name: str,
+    config_out: dict[str, Any],
+    results: list[dict[str, Any]],
+    summary: dict[str, Any],
+) -> None:
+    block = summary["rescore"]
     (new_dir / "README.md").write_text(
-        f"Re-scoring of the stored outputs of runs/{original.run_dir.name} (no pipeline run) "
-        f"against {rescore_meta['questions_path']} sha256 {current_sha[:12]}; "
-        f"traces: runs/{original.run_dir.name}/traces.jsonl\n",
+        f"Re-scoring of the stored outputs of runs/{original_name} (no pipeline run) "
+        f"against {block['questions_path']} sha256 {block['questions_sha256'][:12]}; "
+        f"traces: runs/{original_name}/traces.jsonl\n",
         encoding="utf-8",
     )
     (new_dir / "config.yaml").write_text(
         yaml.safe_dump(
-            {**original.config, "rescore": rescore_meta},
+            config_out,
             allow_unicode=True,
             sort_keys=False,
             width=10**6,
@@ -238,7 +270,6 @@ async def rescore_run_async(
     (new_dir / "summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
-    return RescoreResult(run_dir=new_dir, summary=summary)
 
 
 def rescore_run(run_dir: Path, **kwargs: Any) -> RescoreResult:
