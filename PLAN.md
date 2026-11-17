@@ -25,7 +25,8 @@ Türk bankalarının faaliyet raporları üzerinde çalışan, Türkçe, kaynak 
 | LLM erişimi | İnce `LLMClient` arayüzü, iki backend: **`claude_code`** (`claude-agent-sdk`; kullanıcının Claude aboneliği; yerel geliştirme ve eval için varsayılan) ve **`anthropic_api`** (`anthropic` SDK; API anahtarı; dışarıya açılan demo için) | API bakiyesi gerekmez. Başkalarına açılan bir demo abonelikle değil API anahtarıyla çalışmalı. LiteLLM `claude_code` backend'ini desteklemediği için kullanılmıyor. |
 | Modeller | Cevap üretimi ve sorgu ayrıştırma: `claude-haiku-5-5`. Judge, soru taslağı, agent ayrıştırma: `claude-sonnet-5-5`. Opus toplu işte kullanılmaz. | Abonelik kotasını korumak |
 | Agent katmanı | LangGraph ile açık düğümlü graf: router → basit RAG **ya da** ayrıştır → alt soru başına retrieve + sayı çıkar → deterministik Python hesap → sentez. Serbest tool-calling yok. | Her adım ölçülebilir; hesaplar LLM'e bırakılmaz |
-| Tracing | Her LLM çağrısı ve her soru JSONL'e (soru, getirilen chunk'lar, prompt hash'i, token, gecikme, cache isabeti) | Langfuse self-host ağır; kapsam dışı |
+| Tracing | Her LLM çağrısı ve her soru JSONL'e (soru, getirilen chunk'lar, prompt hash'i, token, gecikme, cache isabeti). JSONL esas kaynaktır; Langfuse yalnızca sonradan beslenen bir görüntüleme hedefi (T14) | Run'lar Langfuse'a bağımlı olmaz; kurumsal tarafta aranan observability yine gösterilir |
+| CI | GitHub Actions: Windows + macOS matrisinde ruff ve pytest (GPU/DB/LLM testleri hariç) | Jenkins kişisel proje için ağır; aynı sinyal daha ucuz |
 | Maliyet | Abonelik dolar göstermez; token × API liste fiyatı = "API-eşdeğeri maliyet" | Ablation'da maliyet sütunu kalsın |
 
 ### `claude_code` backend kuralları
@@ -38,7 +39,7 @@ Türk bankalarının faaliyet raporları üzerinde çalışan, Türkçe, kaynak 
 
 ## Gece oturumu çalışma protokolü
 
-1. Bu plan kullanıcı tarafından onaylandı. Görevleri sırayla yap. Bir görev bitince kabul ölçütlerini komut çıktısıyla doğrula, görev başlığının altındaki `- [ ] Tamamlandı` kutusunu işaretle ve görevin commit mesajıyla commit at. **Push yok.**
+1. Bu plan kullanıcı tarafından onaylandı. (Görevler bu dokümanın son bölümüdür; `task-brief` son görevi dosya sonuna kadar alır.) Görevleri sırayla yap. Bir görev bitince kabul ölçütlerini komut çıktısıyla doğrula, görev başlığının altındaki `- [ ] Tamamlandı` kutusunu işaretle ve görevin commit mesajıyla commit at. **Push yok.**
 2. Kullanıcıya soru sorma; uyuyor. Belirsizlikte makul bir varsayım yap ve tarih + gerekçeyle **Karar günlüğü**ne yaz.
 3. Bloklanırsan (PDF inmiyor, Docker yok, kota bitti…) sorunu **Engeller**'e yaz ve ona bağımlı olmayan sıradaki göreve geç. Hiçbir şeyi sessizce atlama, hiçbir sonucu uydurma.
 4. Gold set'te hiçbir soruyu `verified: true` yapma.
@@ -68,7 +69,7 @@ Gece oturumu orkestratördür: kodu kendisi yazmaz, görevleri alt agent'lara ve
 - [x] Docker Desktop kurulu ve açık: `docker info` hata vermiyor. _(2026-11-17: motor kapalıydı, başlatıldı; Server 27.5.1, 16 CPU, ~7.6 GB RAM)_
 - [x] `nvidia-smi` GPU'yu gösteriyor. _(2026-11-17: RTX 3050 Laptop, 4 GB VRAM, sürücü 591.74, CUDA 13.1)_
 - [x] `uv --version` çalışıyor (yoksa PowerShell'de `python -m pip install uv`). _(2026-11-17: yoktu, `pip install --user uv` ile kuruldu → uv 0.13.9; Python 3.11.2)_
-- [ ] Claude Code CLI kurulu ve aboneliğe giriş yapılmış: `claude -p "merhaba"` cevap veriyor. CLI yoksa PowerShell'de: `irm https://claude.ai/install.ps1 | iex`, ardından `claude` ile giriş.
+- [ ] Claude Code CLI kurulu ve aboneliğe giriş yapılmış: `claude -p "merhaba"` cevap veriyor. CLI yoksa PowerShell'de: `irm https://claude.ai/install.ps1 | iex`, ardından `claude` ile giriş. _(2026-11-17: CLI 2.1.5 → 2.1.318'e güncellendi; giriş oturumu süresi dolmuş — bkz. Engeller)_
 - [x] `ANTHROPIC_API_KEY` tanımlı değil: PowerShell'de `echo $env:ANTHROPIC_API_KEY` boş dönüyor. _(2026-11-17: kullanıcı düzeyinde tanımlıydı, kullanıcı onayıyla kaldırıldı; User/Machine/Process üçü de boş)_
 - [x] En az 30 GB boş disk. _(2026-11-17: C: 103 GB boş)_
 - [ ] Uyku kapalı: Ayarlar → Sistem → Güç → prize takılıyken uyku "Hiçbir zaman". Bilgisayar prizde.
@@ -97,6 +98,31 @@ indirmene izin veriyorum. İş bitince ya da durmak zorunda kalırsan PLAN.md'de
 Sabah raporunu doldur.
 ```
 
+## Karar günlüğü
+
+| Tarih | Karar | Gerekçe |
+|---|---|---|
+| 2026-11-17 | KAP faaliyet raporları; 4 banka × 2023–2025 | Hedef işverenlerin alanı; tablo, birim ve karşılaştırma zorlukları gerçek |
+| 2026-11-17 | LLM'ler kullanıcının Claude aboneliği üzerinden (`claude_code` backend) | API bakiyesi gerekmesin; demo için `anthropic_api` backend'i de var |
+| 2026-11-17 | Gece oturumu Windows + NVIDIA GPU makinesinde | Mac'te disk yetersiz (13 GB boş) |
+| 2026-11-17 | README TR + EN; kod yorumları ve commit'ler İngilizce | Kullanıcı tercihi |
+| 2026-11-17 | Gece oturumu Fable 5.2 orkestratör + `subagent-driven-development`; alt agent'lar varsayılan `opus`; `main`'de, worktree'siz | Kullanıcı tercihi; git dışı veri/.env/Docker volume worktree'de olmadığı için |
+| 2026-11-17 | CI: GitHub Actions (T0). Langfuse: JSONL trace'lerin sonradan aktarımı (T14, P2). LiteLLM ve LangChain şimdilik yok | Kullanıcı tercihi; ablation için pipeline adımları elle yazılı kalır; LiteLLM `claude_code` backend'ini desteklemiyor |
+
+## Engeller
+
+| Tarih | Engel | Durum / yapılacak |
+|---|---|---|
+| 2026-11-17 | `ANTHROPIC_API_KEY` Windows kullanıcı ortam değişkeni olarak tanımlı (User scope). Yeni açılan her terminal ve Claude Code oturumu bunu devralır; `claude_code` backend'inde abonelik yerine API faturalanabilir. | **Çözüldü (2026-11-17):** kullanıcı onayıyla User scope'tan kaldırıldı. Açık terminaller/Claude uygulaması eski değeri hâlâ taşıyabilir; gece oturumundan önce yeniden başlatılmalı. Anahtar `anthropic_api` backend'i için gerekiyorsa yalnızca `.env`'de tutulmalı. |
+| 2026-11-17 | GPU yalnızca 4 GB VRAM (RTX 3050 Laptop). bge-m3 + bge-reranker-v2-m3 + Docling aynı anda belleğe sığmayabilir. | Engel değil, risk: modelleri fp16 ve küçük batch'le, sırayla yükle; Docling'i embedding'den ayrı çalıştır. |
+| 2026-11-17 | Docker Desktop'a ~7.6 GB RAM ayrılmış; Docker Desktop oturum açılışında otomatik başlamıyor olabilir (bugün kapalıydı). | Gece oturumundan önce Docker Desktop'ın açık olduğunu kontrol et. |
+| 2026-11-17 | `claude -p "merhaba"` başarısız: "OAuth session expired and could not be refreshed". CLI güncellendi (2.1.318), sorun sürüyor. `claude-agent-sdk` aynı girişi kullandığı için T1 ve tüm LLM adımları buna bağlı. | Kullanıcı bir terminalde `claude` açıp `/login` ile **aboneliğin bağlı olduğu hesapla** yeniden giriş yapmalı; ardından `claude -p "merhaba"`. |
+| 2026-11-17 | Uyku ayarı kontrol edilmedi. | Kullanıcı kontrol etmeli. |
+
+## Sabah raporu
+
+_(Gece oturumu doldurur: biten görevler, kalanlar, taslak ablation tablosu, kullanıcının yapması gerekenler.)_
+
 ## Görevler
 
 Öncelik: **P0** sabaha kadar şart, **P1** olması beklenen, **P2** zaman kalırsa.
@@ -106,8 +132,10 @@ Sabah raporunu doldur.
 - Donanım ve araçları kontrol et (`nvidia-smi`, `docker info`, `uv`, `python`, `claude -p`); sonucu Karar günlüğüne yaz.
 - `pyproject.toml` (uv), `src/kaprag/`, `tests/`, `scripts/`, ruff ve pytest ayarları; CUDA'lı torch (CUDA sürümünü `nvidia-smi`'den oku).
 - `docker-compose.yml`: `pgvector/pgvector:pg17`, port 5432, isimli volume. `.env.example`'dan `.env` oluştur.
-- **Kabul:** `docker compose up -d` sonrası `CREATE EXTENSION IF NOT EXISTS vector` çalışıyor; `uv run pytest` yeşil; `torch.cuda.is_available()` → `True`.
-- **Commit:** `chore: scaffold project with uv, pgvector compose, ruff and pytest`
+- Ağır bağımlılıklar (torch, sentence-transformers, docling) ayrı bir uv dependency group'unda (`ml`); hafif çekirdek + dev araçları onsuz kurulabilir. GPU, veritabanı ya da Claude gerektiren testler pytest marker'larıyla (`gpu`, `db`, `llm`) işaretlenir.
+- GitHub Actions `.github/workflows/ci.yml`: push ve pull request'te, `windows-latest` ve `macos-latest` matrisinde `astral-sh/setup-uv` → `uv sync --locked` (`ml` grubu hariç) → `uv run ruff check .` → `uv run pytest -m "not gpu and not db and not llm"`. Action'ların güncel ana sürümlerini dokümantasyondan doğrula; tahmin etme. Sır kullanılmaz.
+- **Kabul:** `docker compose up -d` sonrası `CREATE EXTENSION IF NOT EXISTS vector` çalışıyor; `uv run pytest` yeşil; `torch.cuda.is_available()` → `True`; CI'daki komut dizisi yerelde `ml` grubu olmadan temiz bir ortamda (ör. geçici `UV_PROJECT_ENVIRONMENT`) aynen geçiyor; workflow YAML'ı geçerli. (Push yok; CI'ın GitHub'da gerçekten koşması kullanıcının ilk push'unda görülür.)
+- **Commit:** `chore: scaffold project with uv, pgvector compose, ruff, pytest and CI`
 
 ### Task T1 — LLM istemcisi (P0)
 - [ ] Tamamlandı
@@ -204,25 +232,11 @@ Her adım bir öncekinin üstüne eklenir ve dev'de ayrı bir run'dır:
 - FastAPI `/ask` endpoint'i ve Streamlit sohbet demosu (rol seçici, tıklanınca sayfa görüntüsü açılan atıflar).
 - ~15 İngilizce soru (Türkçe dokümanlar üzerinde cross-lingual retrieval).
 
-## Karar günlüğü
-
-| Tarih | Karar | Gerekçe |
-|---|---|---|
-| 2026-11-17 | KAP faaliyet raporları; 4 banka × 2023–2025 | Hedef işverenlerin alanı; tablo, birim ve karşılaştırma zorlukları gerçek |
-| 2026-11-17 | LLM'ler kullanıcının Claude aboneliği üzerinden (`claude_code` backend) | API bakiyesi gerekmesin; demo için `anthropic_api` backend'i de var |
-| 2026-11-17 | Gece oturumu Windows + NVIDIA GPU makinesinde | Mac'te disk yetersiz (13 GB boş) |
-| 2026-11-17 | README TR + EN; kod yorumları ve commit'ler İngilizce | Kullanıcı tercihi |
-| 2026-11-17 | Gece oturumu Fable 5.2 orkestratör + `subagent-driven-development`; alt agent'lar varsayılan `opus`; `main`'de, worktree'siz | Kullanıcı tercihi; git dışı veri/.env/Docker volume worktree'de olmadığı için |
-
-## Engeller
-
-| Tarih | Engel | Durum / yapılacak |
-|---|---|---|
-| 2026-11-17 | `ANTHROPIC_API_KEY` Windows kullanıcı ortam değişkeni olarak tanımlı (User scope). Yeni açılan her terminal ve Claude Code oturumu bunu devralır; `claude_code` backend'inde abonelik yerine API faturalanabilir. | **Çözüldü (2026-11-17):** kullanıcı onayıyla User scope'tan kaldırıldı. Açık terminaller/Claude uygulaması eski değeri hâlâ taşıyabilir; gece oturumundan önce yeniden başlatılmalı. Anahtar `anthropic_api` backend'i için gerekiyorsa yalnızca `.env`'de tutulmalı. |
-| 2026-11-17 | GPU yalnızca 4 GB VRAM (RTX 3050 Laptop). bge-m3 + bge-reranker-v2-m3 + Docling aynı anda belleğe sığmayabilir. | Engel değil, risk: modelleri fp16 ve küçük batch'le, sırayla yükle; Docling'i embedding'den ayrı çalıştır. |
-| 2026-11-17 | Docker Desktop'a ~7.6 GB RAM ayrılmış; Docker Desktop oturum açılışında otomatik başlamıyor olabilir (bugün kapalıydı). | Gece oturumundan önce Docker Desktop'ın açık olduğunu kontrol et. |
-| 2026-11-17 | `claude -p "merhaba"` ve uyku ayarı bu oturumda kontrol edilmedi (istenen listede değildi). | Kullanıcı kontrol etmeli. |
-
-## Sabah raporu
-
-_(Gece oturumu doldurur: biten görevler, kalanlar, taslak ablation tablosu, kullanıcının yapması gerekenler.)_
+### Task T14 — Langfuse'a trace aktarımı (P2)
+- [ ] Tamamlandı
+- `scripts/export_langfuse.py --run runs/<klasör>`: run'ın `traces.jsonl`'ını Langfuse'a aktarır. Soru başına bir trace; altında retrieval adımı (getirilen chunk'lar, skorlar) ve her LLM çağrısı bir generation (model, token, gecikme, cache isabeti, API-eşdeğeri maliyet). Run konfigürasyonu trace metadata'sına, metrik sonuçları (sayısal doğruluk, judge kararı, recall) score olarak. Tekrar çalıştırmak çift kayıt üretmez (deterministik trace ID).
+- Langfuse Python SDK'nın güncel sürümünü ve API'sini dokümantasyondan doğrula; tahmin etme. SDK yalnızca bu script'te kullanılır; pipeline ve `kaprag.llm` Langfuse'a bağımlı olmaz.
+- Self-host: Langfuse'un resmi docker compose'u `docker-compose.yml`'de ayrı bir profil (`observability`) olarak; varsayılan `docker compose up` onu başlatmaz. Bağlantı `.env`'den (`LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`); `.env.example`'a boş değerlerle eklenir.
+- Bellek: Docker'a ~7.6 GB ayrılmış. Profil, embedding/reranker ya da Docling çalışırken başlatılmaz. Başlamazsa ya da anahtar oluşturmak için arayüzde kullanıcı girişi gerekiyorsa Engeller'e yazılır; exporter yine birim testleriyle teslim edilir.
+- **Kabul:** sahte trace dosyasıyla, Langfuse istemcisi mock'lanarak birim testleri yeşil (trace/generation/score eşlemesi, deterministik ID). Self-host ayağa kalktıysa bir dev run'ı aktarılır ve trace sayısı Langfuse API'sinden okunup run'daki soru sayısıyla eşleşir.
+- **Commit:** `feat: export run traces to Langfuse`
