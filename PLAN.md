@@ -114,6 +114,10 @@ Sabah raporunu doldur.
 | 2026-11-17 | README'deki ablation tablosu: `eval/README.md` §6 "README'ye yalnızca doğrulanmış alt kümenin sayıları girer" diyor, T12 ise "Taslak — doğrulanmamış gold set" uyarılı tablo istiyor. T12 izlenecek: tablo tüm-set sayılarıyla, uyarı altında ve "doğrulanmış alt kümeyle değiştirilecek" notuyla yazılacak. | Bu gece hiçbir soru doğrulanamaz (agent `verified` yapmaz); T12 tam bu durum için yazılmış açık talimat. Yanlışsa bedeli: kullanıcı bir tabloyu siler |
 | 2026-11-17 | T8 pipeline'ı metrikler için sıralı top-10 sonucu döndürür, üretim bağlamında top-5 kullanır. | T8 "top-5" diyor, `eval/README.md` §6 `recall@10`/`mrr@10` istiyor; ikisi birlikte ancak böyle ölçülür |
 | 2026-11-17 | T6'daki "hibrit aramayla kontrol" (eval §7 adım 5) için dense ve FTS arama ilkelleri T4'te yazılır; hibrit bir eval konfigürasyonu olarak T9a'da ölçülür. Kabul satırı olmayan görevlerde (T8–T13) kabul = testler yeşil + görevin adını verdiği run/çıktı mevcut. | Plan sırası T6'yı T9a'dan önce koyuyor; kabul ölçütü boş bırakılmış görevler için asgari ölçüt |
+| 2026-11-17 | API-eşdeğeri maliyette cache okuma/yazma token'ları düz girdi fiyatından sayılır. | `claude_code` backend'i kısa bir çağrıda ~2 girdi + ~640 cache-yazma token'ı raporluyor; yalnızca `input_tokens` sayılsa maliyet ~30 kat düşük çıkardı. Plan yalnızca girdi/çıktı fiyatı veriyor |
+| 2026-11-17 | `LLMClient.complete` asenkron (`complete_sync` sarmalayıcısıyla); kalıcı hata `LLMCallError` fırlatır (önce trace'e yazılır), toplu koşucular yakalayıp soruyu `error` işaretler. `claude_code` backend'i `ANTHROPIC_API_KEY`'i süreç ortamından siler (SDK alt süreç ortamından değişken çıkaramıyor). | `claude-agent-sdk` asenkron; "run devam eder" kuralı çağıran tarafta uygulanır |
+| 2026-11-17 | `page` her yerde (parse çıktısı, gold kanıt, atıf) 1 tabanlı **PDF sayfa indeksi**dir, basılı sayfa numarası değil. | Raporların çoğu bir PDF sayfasına iki basılı sayfa koyuyor; review arayüzü PDF sayfasını render ediyor |
+| 2026-11-17 | Garanti korpusta yalnızca entegre faaliyet raporlarıyla kalır; ayrı BDDK finansal raporları eklenmez. Garanti `tablo` soruları raporda geçen rakamlarla sınırlıdır. | Garanti'nin entegre raporlarında tam bilanço/gelir tablosu yok; plan "bağımsız denetim raporları kapsam dışı" diyor. Yanlışsa bedeli: daha az Garanti tablo sorusu |
 
 ## Engeller
 
@@ -125,6 +129,7 @@ Sabah raporunu doldur.
 | 2026-11-17 | `claude -p "merhaba"` başarısız: "OAuth session expired and could not be refreshed". CLI güncellendi (2.1.318), sorun sürüyor. `claude-agent-sdk` aynı girişi kullandığı için T1 ve tüm LLM adımları buna bağlı. | **Çözüldü (2026-11-17):** kullanıcı yeniden giriş yaptı; Haiku ile `claude -p` doğrulandı. |
 | 2026-11-17 | Uyku ayarı kontrol edilmedi. | Kullanıcı kontrol etmeli. |
 | 2026-11-17 | Repo yolundaki `ş` yüzünden paket yalnızca `dev` grubundaki `editables` ile import edilebiliyor; `uv sync --no-dev` (ör. ileride bir prod/Docker kurulumu) paketi import edilemez bırakır. uv'nin yönetilen Python 3.13'ü bu kullanıcı yolunda kurulamadı. | Engel değil, risk. Kalıcı çözüm kullanıcının kararı: repoyu ASCII bir yola taşımak ya da Python 3.13+. CI ve yerel geliştirme etkilenmiyor. |
+| 2026-11-17 | Abonelik penceresi (5 saatlik / 7 günlük) dolarsa `claude_code` çağrıları 2 s + 4 s beklemeyle 3 denemeden sonra `error` olur; pencerenin sıfırlanmasını bekleme istemcide yok. | Engel değil, risk. Başarısız çağrılar cache'lenmediği için run yeniden çalıştırılınca yalnızca hatalı sorular kota harcar; orkestratör run'lardaki `error` sayısına bakıp gerekirse pencere sıfırlanınca tekrar koşar. |
 
 ## Sabah raporu
 
@@ -145,7 +150,7 @@ _(Gece oturumu doldurur: biten görevler, kalanlar, taslak ablation tablosu, kul
 - **Commit:** `chore: scaffold project with uv, pgvector compose, ruff, pytest and CI`
 
 ### Task T1 — LLM istemcisi (P0)
-- [ ] Tamamlandı
+- [x] Tamamlandı
 - `kaprag.llm`: `LLMClient.complete(system, user, model, schema=None) -> LLMResult(text, parsed, usage, latency_ms, cached)`.
 - `claude_code` backend (yukarıdaki kurallar) ve `anthropic_api` backend (minimal; yalnızca anahtar varsa test edilir).
 - Disk cache, eşzamanlılık semaforu, tekrar/bekleme, JSONL trace.
