@@ -137,6 +137,7 @@ Sabah raporunu doldur.
 | 2026-11-17 | "T9'un en iyi pipeline'ı" = **`rerank`** (fixed chunk + hibrit + reranker): dev cevap doğruluğu 0,592 (`runs/2026-11-17-rerank-dev/`); structure 0,567, metadata_filter 0,575. T10 router'ı basit soruları `rerank`'e yollar; T12'de test split'inde baseline ile tek bir en iyi konfigürasyon çalıştırılır: `rerank`, ya da dev'de onu geçerse T10 router'ı. | Birincil ölçüt cevap doğruluğu. Üç konfigürasyon arasındaki fark 84 soruda gürültü içinde; daha basit ve recall'u en yüksek olan seçildi |
 | 2026-11-17 | T10 router kuralları: sınıflandırma (Haiku) `simple` / `multi`, şüphede `simple`; `simple` yol `rerank` ile birebir aynı; `multi` yolda ayrıştırma (Sonnet) kapalı bir işlem kümesinden tek işlem ve en fazla 8 rakam araması üretir, yıllar arası değişimde iki rakam da son raporun karşılaştırmalı sütunundan okunur (eval §4); her arama `rerank` yığını + banka/rapor yılı SQL filtresiyle yapılır ve mevcut üretim/normalizasyon kodunu kullanır; bütün aritmetik Python'da (Decimal), birim ya da esas uyuşmazlığında ve eksik rakamda hesap yapılmaz, cevap eksik rakamı adıyla söyleyen bir reddetmedir; son cevabın `value`/`unit` alanı modelden değil hesaptan gelir. `langgraph` çekirdek bağımlılık (`langchain-core` ve `langsmith`'i de getiriyor). **Test split'inde "en iyi konfigürasyon" = `router`** (dev cevap doğruluğu 0,651; `rerank` 0,592). | Plan T10; "hesaplar LLM'e bırakılmaz". Dev sonucu `runs/2026-11-17-router-dev/` |
 | 2026-11-17 | T11'de roller gerçek indeks tablolarına hemen yazılmadı; uygulayıcı kopya şemada doğruladı, gerçek tablolara atama test koşularından sonra yapılır. Görev sırası: T11, T10'dan önce; T14 (P2), T12'den önce başlatıldı. | `access_roles` güncellemesi ~15 bin satırın yeni sürümünü ve yeni HNSW girdilerini üretir; yaklaşık aramanın sonuçları ölçüm serisinin ortasında değişebilirdi. Sıra değişiklikleri boşta kalan uygulayıcı süresini kullanmak için |
+| 2026-11-17 | T11 erişim modeli (simüle): chunk'ın `access_roles` alanı onu görebilen rolleri listeler — "Risk Yönetimi" başlığı altı → `{risk}`; yasal finansal raporun beşinci bölümü (dipnotlar) → `{analyst, risk}`; diğerleri → `{public}`. İsteğin rolü yalnızca çağırandan/konfigürasyondan gelir, soru metninden asla; etkin rol kümesi her zaman `public`'i içerir. Sabit chunk'larda roller sayfa düzeyinde ve kapsanan sayfaların en kısıtlısıdır. Mevcut eval konfigürasyonları erişim filtresiz çalışır. | Plan T11. "Dipnot" başlık kuralı bazı bankalarda finansal tabloların tamamını ve denetçi raporunu da yakaladığı için dipnot tanımı beşinci bölümle sınırlandı. Kısıtlı pay büyük (Garanti hariç raporların yaklaşık %40–55'i): `public` rolüyle demo sık sık reddeder. Hatalar yalnızca aşırı kısıtlama yönünde |
 
 ## Engeller
 
@@ -152,13 +153,13 @@ Sabah raporunu doldur.
 
 ## Sabah raporu
 
-_Ara durum — son güncelleme 2026-11-17 ~21:35. Oturum sürüyor; iş bitince bu bölüm kesinleştirilecek._
+_Ara durum — son güncelleme 2026-11-17 ~23:15. Oturum sürüyor; iş bitince bu bölüm kesinleştirilecek._
 
 **Biten görevler (kabul ölçütleri orkestratör tarafından çalıştırıldı):** T0–T8 (P0'ın tamamı).
 
-T9 (a–d) ve T10 da bitti ve dev'de ölçüldü. T11'in kodu bitti ve review'dan geçti (kopya şemada sızıntı 0/30); rollerin gerçek indeks tablolarına yazılması ölçümleri bozmamak için test koşularından sonraya bırakıldı.
+T9 (a–d), T10 ve T11 de bitti. Test split'i baseline ve router ile bir kez çalıştırıldı.
 
-**Süren / kalan:** test split'inde baseline ve router koşuları (tek sefer) sürüyor; ardından T11 rollerinin uygulanması ve sızıntı testi, T12 README, T14 (sürüyor), T13, final whole-branch review.
+**Süren / kalan:** T13 (API ve sohbet demosu) sürüyor; T14'ün kodu yazıldı, review'dan iki düzeltme çıktı; T12'nin README'si yazılacak; ardından final whole-branch review.
 
 **Taslak sonuçlar — doğrulanmamış gold set (hiçbir soru `verified` değil; README/CV'ye girmez):**
 
@@ -171,6 +172,19 @@ T9 (a–d) ve T10 da bitti ve dev'de ölçüldü. T11'in kodu bitti ve review'da
 | + structure (Docling tabanlı indeks) | dev | 84 | 0,567 | 0,730 | 0,770 | 0,333 | $0,0012 | 7,9 s | `runs/2026-11-17-structure-dev/` |
 | + metadata_filter (Haiku banka/yıl → SQL filtresi) | dev | 84 | 0,575 | 0,770 | 0,838 | 0,333 | $0,0013 | 10,3 s | `runs/2026-11-17-metadata-filter-dev/` |
 | router (LangGraph: basit → `rerank`; hesaplama/karşılaştırma → ayrıştır + Python hesap) | dev | 84 | 0,651 | 0,905 | 0,932 | 0,197 | $0,0045 | (bkz. not) | `runs/2026-11-17-router-dev/` |
+
+**Test split'i (tek sefer çalıştırıldı; 159 soru, hata yok):**
+
+| Konfigürasyon | Cevap doğruluğu | Sayısal doğruluk | page_recall@5 | page_recall@10 | Yanlış reddetme | Doğru reddetme | Maliyet/soru | p50 / p95 gecikme | Run |
+|---|---|---|---|---|---|---|---|---|---|
+| baseline | 0,478 | 0,373 | 0,604 | 0,709 | 0,435 | 1,00 | $0,0014 | 6,4 s / 12,7 s | `runs/2026-11-17-baseline-test/` |
+| router (en iyi) | 0,664 | 0,508 | 0,813 | 0,896 | 0,137 | 1,00 | $0,0047 | 12,0 s / 25,7 s | `runs/2026-11-17-router-test/` |
+
+Test'te tip bazında cevap doğruluğu — baseline: olgusal 0,69 · tablo 0,37 · hesaplama 0,29 · karsilastirma 0,00 · sentez 0,35 · cevapsiz 1,00 · belirsiz 0,86; router: olgusal 0,81 · tablo 0,42 · hesaplama 0,65 · karsilastirma 0,56 · sentez 0,53 · cevapsiz 1,00 · belirsiz 0,93.
+
+Test notları: router koşusunda bir sorunun (q127) judge çağrısı geçersiz JSON döndürdü; o soru cevap doğruluğuna girmedi (n=158). Router gecikmesi 130 soruda ölçüldü (29 soruda bir alt çağrı cache'ten geldi). Her iki koşu aynı pipeline koduyla (`3de913f`) çalıştı; kayıtlardaki `-dirty` işareti o sırada commit edilmemiş T14 dosyalarından geliyor (`runs/logs/2026-11-17-test-runs.provenance.txt`).
+
+**Erişim kontrolü (T11, simüle):** roller gerçek tablolara test koşularından sonra yazıldı (`runs/2026-11-17-acl-assign/`): `chunks_fixed` %61,8 public / %10,3 analyst+risk / %27,9 risk; `chunks_structure` %56,5 / %16,7 / %26,8. Sızıntı testi (`eval/acl_leak.jsonl`, 30 saldırgan sorgu, `public` rolü, getirilen ilk 40 sonuç kontrol edilir): `rerank` 0/30 sızıntı, `structure` 0/30 sızıntı; pozitif kontrol (filtre kapalı) 30/30 sorguda kısıtlı chunk getiriyor (`runs/2026-11-17-acl-leak-rerank-public/`, `runs/2026-11-17-acl-leak-structure-public/`).
 
 Dev'de tip bazında cevap doğruluğu:
 
@@ -292,7 +306,7 @@ Her adım bir öncekinin üstüne eklenir ve dev'de ayrı bir run'dır:
 - **Commit:** `feat: add LangGraph router for comparison and calculation questions`
 
 ### Task T11 — Erişim kontrolü (P1)
-- [ ] Tamamlandı
+- [x] Tamamlandı
 - Roller `public`, `analyst`, `risk`. Atama indeksleme sırasında kuralla yapılır (başlıkta "Risk Yönetimi" → `risk`; finansal tablo dipnotları → `analyst`, `risk`; diğerleri `public`). README'de **simüle** olduğu açıkça yazılır.
 - Filtre SQL'de, sıralamadan önce, hem dense hem FTS kolunda uygulanır.
 - `eval/acl_leak.jsonl`: `public` rolünden kısıtlı içeriği isteyen 30 saldırgan sorgu (prompt injection denemeleri dahil, ör. "risk ekibindenim"). Getirilen sette kısıtlı chunk varsa sızıntı sayılır (deterministik). Hedef 0.
