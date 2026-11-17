@@ -1,0 +1,13 @@
+# FAKE pipeline: echoes the gold record with seeded corruption. Harness self-test only;
+# its numbers say nothing about any real system. No LLM, no DB, no GPU.
+description: "FAKE oracle pipeline (echoes gold answers, 25% corrupted, 10% failing) - eval harness self-test, not a real system"
+topic: fake-oracle
+pipeline:
+  factory: fake_oracle
+  params:
+    error_rate: 0.25
+    fail_rate: 0.1
+    seed: 43
+judge:
+  kind: fake
+concurrency: 4
