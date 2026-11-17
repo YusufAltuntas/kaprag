@@ -1,0 +1,32 @@
+description: Agent router fixture - Haiku classify; simple -> rerank pipeline; multi -> decompose, look-ups, compute, synthesize
+topic: router
+pipeline:
+  factory: router
+  params:
+    rag:
+      index: fixed
+      retrieve_k: 10
+      context_k: 5
+      generation:
+        model: claude-haiku-5-5
+    classify:
+      model: claude-haiku-5-5
+    decompose:
+      model: claude-sonnet-5-5
+      max_lookups: 8
+    synthesize:
+      model: claude-haiku-5-5
+judge:
+  kind: llm
+  model: claude-sonnet-5-5
+concurrency: 4
+run:
+  run_id: 2026-01-02-router-dev
+  config_name: router
+  split: dev
+  limit: null
+  n_questions: 3
+  questions_path: eval/gold/questions.jsonl
+  questions_sha256: 0000000000000000000000000000000000000000000000000000000000000abc
+  git_commit: 9f1c2e7a0b3d4c5e6f708192a3b4c5d6e7f80912
+  started_at: '2026-01-02T10:00:00.000000+00:00'

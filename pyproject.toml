@@ -28,6 +28,11 @@ dev = [
     "pytest>=8.3",
     "ruff>=0.8",
 ]
+# Langfuse exporter (scripts/export_langfuse.py); not a default group, so `uv sync`
+# (and CI) skips it. Install locally with `uv sync --group ml --group app --group observability`.
+observability = [
+    "langfuse>=5.2,<6",
+]
 # Heavy ML stack; not a default group, so `uv sync` (and CI) skips it.
 # Install locally with `uv sync --group ml`.
 ml = [
