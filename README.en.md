@@ -2,7 +2,7 @@
 
 English · [Türkçe](README.md)
 
-A document assistant that answers Turkish questions with page citations, over the 2023–2025 integrated annual reports of four Turkish banks. The main output of the project is not the assistant itself but **measurement**: an ablation table showing what each architectural change does to quality, cost and latency.
+A document assistant that answers Turkish questions with page citations, over the 2023–2025 integrated annual reports of four Turkish banks. The main output of the project is not the assistant itself but **measurement**: an ablation table showing what each architectural change does to quality, cost and latency (currently a draft on an unverified gold set — see [Results](#results)).
 
 ## Problem
 
@@ -49,16 +49,18 @@ flowchart TB
     G4 -.-> L
 ```
 
-Package layout (`src/kaprag/`): `parsing`, `chunking`, `index`, `rag` (retrieval, rerank, generation), `agent` (router and calculation path), `access` (simulated roles), `llm`, `eval`, `gold` (gold set drafting), `serve` (API and demo service), `observability` (Langfuse export). Every experiment is a YAML file under `configs/`; each ablation is a copy of the previous one with one block changed.
+Package layout (`src/kaprag/`): `parsing`, `chunking`, `index`, `rag` (retrieval, rerank, generation), `agent` (router and calculation path), `access` (simulated roles), `llm`, `eval`, `gold` (gold set drafting), `serve` (API and demo service), `observability` (Langfuse export). Every experiment is a YAML file under `configs/`. `hybrid`, `rerank`, `structure` and `metadata_filter` are each a copy of the previous one with one block changed; `router` is built on `rerank` (fixed index), not on `metadata_filter`: simple questions go through the `rerank` pipeline unchanged.
 
 ## Results
 
 > [!WARNING]
 > **Draft — unverified gold set.** Every number below was measured on a 243-question gold set that was drafted by an LLM and of which **no question has been verified by a human yet** (questions with `verified: true`: 0). Under the eval design ([`eval/README.md`](eval/README.md) §6) only numbers from the human-verified subset belong in the README or a CV; these tables are a labelled draft and will be replaced as questions are verified in the review app. The judge that grades text answers (`claude-sonnet-5-5`) is from the same model family as the generator (`claude-haiku-5-5`) and has not yet been calibrated against human labels.
 
-Gold set: 243 questions — olgusal (factual) 39, tablo (table) 60, hesaplama (calculation) 26, karsilastirma (comparison) 39, sentez (synthesis) 26, cevapsiz (unanswerable) 33, belirsiz (ambiguous) 20. Split: dev 84 / test 159 (30 pilot questions inside dev). Numeric answers are scored deterministically, without a judge. Metric definitions: [`eval/README.md`](eval/README.md) §6.
+Gold set: 243 questions — olgusal (factual) 39, tablo (table) 60, hesaplama (calculation) 26, karsilastirma (comparison) 39, sentez (synthesis) 26, cevapsiz (unanswerable) 33, belirsiz (ambiguous) 20. Split: dev 84 / test 159 (30 pilot questions inside dev). Numeric answers are scored deterministically, without a judge. Component metric definitions: [`eval/README.md`](eval/README.md) §6.
 
-### Ablation — dev split (84 questions, 0 errors in every run)
+**Answer accuracy** is the mean per-question score (not simply the share of correct answers): `abstain` and `clarify` questions score 1 if the system behaved as expected, else 0; questions that expect an answer (`answer`, `answer_with_assumption`) score 0 if the behaviour check fails, otherwise their content score — numeric correctness (1/0), the judge's verdict (1/0) or, for `sentez`, the fraction of key points covered. A question whose pipeline failed scores 0; a question with a missing judge verdict is excluded from the mean and the count is reported. Definition: [`src/kaprag/eval/metrics.py`](src/kaprag/eval/metrics.py).
+
+### Ablation — dev split (84 questions, 0 errors in every run) — draft, unverified gold set
 
 | Config | What it adds | Answer accuracy | page_recall@5 | page_recall@10 | Citation precision | False-abstain rate | API-equivalent cost / question | p50 latency | Run folder |
 |---|---|---|---|---|---|---|---|---|---|
@@ -71,7 +73,7 @@ Gold set: 243 questions — olgusal (factual) 39, tablo (table) 60, hesaplama (c
 
 Answer accuracy by question type (dev; number of questions in parentheses):
 
-| Config | olgusal (13) | tablo (22) | hesaplama (9) | karsilastirma (13) | sentez (9) | cevapsiz (12) | belirsiz (6) |
+| Config | `olgusal` (13) | `tablo` (22) | `hesaplama` (9) | `karsilastirma` (13) | `sentez` (9) | `cevapsiz` (12) | `belirsiz` (6) |
 |---|---|---|---|---|---|---|---|
 | baseline | 0.69 | 0.41 | 0.11 | 0.08 | 0.36 | 1.00 | 0.50 |
 | hybrid | 0.77 | 0.45 | 0.00 | 0.08 | 0.43 | 1.00 | 0.83 |
@@ -82,13 +84,14 @@ Answer accuracy by question type (dev; number of questions in parentheses):
 
 Reading the table:
 
-- **Noise:** with n = 84 the standard error of one proportion is about 5 points. Differences of 1–3 points between rerank / structure / metadata_filter are within noise. The meaningful steps are baseline → rerank (≈14 points) and rerank → router (≈6 points, concentrated in the two targeted types, calculation and comparison).
+- **Noise:** with n = 84 the standard error of one proportion is about 5 points. Differences of 1–3 points between rerank / structure / metadata_filter are within noise. The larger steps are baseline → rerank (≈14 points) and rerank → router (≈6 points, close to the standard error; concentrated in the two targeted types, calculation and comparison). The router's simple-route answers are identical to `rerank`, so the difference comes only from the routed comparison/calculation questions. By-type cells rest on 6–22 questions on dev and 14–38 on test.
+- **Correct abstention** has no separate column in the dev table; the `cevapsiz` column shows it (1.00 in every dev run).
 - **structure** did not improve answer accuracy; it clearly improved citation precision (its chunks are single-page). Part of its lower page recall may be a measurement effect: fixed chunks span several pages and meet the "gold page within the chunk's page span" rule more easily. This was not verified.
 - **Latency** excludes questions with a cached LLM call. Router dev latency could be measured on only 9 questions (the simple-route answers were cache hits from the `rerank` run), mostly agent-route ones: p50 25.0 s — not comparable to the other rows; use the test-split latency for the router.
 - **Cost** is "API-equivalent": tokens × API list price (Haiku 5.5 $0.10 / $0.50, Sonnet 5.5 $2 / $10 per 1M input/output tokens). Development ran on a Claude subscription, which shows no dollars. Judge cost is excluded from cost per question.
 - The optional step T9e (swapping the embedding model for multilingual-e5-large) was not run.
 
-### Test split — run once (159 questions, 0 errors)
+### Test split — run once (159 questions, 0 errors) — draft, unverified gold set
 
 | Config | Answer accuracy | Numeric accuracy | page_recall@5 | page_recall@10 | Correct-abstain rate | False-abstain rate | Cost / question | p50 / p95 latency | Run folder |
 |---|---|---|---|---|---|---|---|---|---|
@@ -97,7 +100,7 @@ Reading the table:
 
 Answer accuracy by question type (test; same run folders):
 
-| Config | olgusal (26) | tablo (38) | hesaplama (17) | karsilastirma (26) | sentez (17) | cevapsiz (21) | belirsiz (14) |
+| Config | `olgusal` (26) | `tablo` (38) | `hesaplama` (17) | `karsilastirma` (26) | `sentez` (17) | `cevapsiz` (21) | `belirsiz` (14) |
 |---|---|---|---|---|---|---|---|
 | baseline | 0.69 | 0.37 | 0.29 | 0.00 | 0.35 | 1.00 | 0.86 |
 | router | 0.81 | 0.42 | 0.65 | 0.56 | 0.53 | 1.00 | 0.93 |
@@ -108,12 +111,12 @@ For one router question (q127) the judge call returned invalid JSON; it is exclu
 
 The annual reports used here are public documents; the access model is **simulated**, only to demonstrate the mechanism. Roles are assigned to chunks by a fixed rule: content under a "Risk Yönetimi" (risk management) heading → `risk` only; section five (footnotes) of the statutory financial report → `analyst` and `risk`; everything else → `public`.
 
-- Share of chunks: `chunks_fixed` 61.8% public / 10.3% analyst+risk / 27.9% risk; `chunks_structure` 56.5% / 16.7% / 26.8% (`runs/2026-11-17-acl-assign/`). Garanti's reports are only 3–8% restricted; the other nine are roughly 40–55% restricted. A demo with the `public` role therefore cannot answer many questions that rely on figures from the statutory reports.
+- Share of chunks: `chunks_fixed` 61.8% public / 10.3% analyst+risk / 27.9% risk; `chunks_structure` 56.5% / 16.7% / 26.8% (`runs/2026-11-17-acl-assign/`). Garanti's reports are only 3–8% restricted; the other nine are roughly 40–55% restricted. A demo with the `public` role therefore may not answer questions whose evidence lies in the risk-management sections or the financial-statement footnotes (not counted).
 - The filter is a SQL condition applied before ranking in both the dense and the full-text arm; the role comes from the caller, never from the question text.
 - Leak test (`eval/acl_leak.jsonl`): 30 adversarial queries as `public` (18 direct requests for restricted content, 12 prompt-injection / social-engineering attempts). A leak is any restricted chunk among the 40 retrieved items. Result: 0/30 on the fixed index (`runs/2026-11-17-acl-leak-rerank-public/`) and 0/30 on the structure index (`runs/2026-11-17-acl-leak-structure-public/`). Positive control with the filter off: 30/30 queries retrieve restricted chunks.
 - A real deployment would take roles and document entitlements from the organisation's identity provider and document-management ACLs at ingestion time, pass the authenticated user's role from the session rather than from the request text, and audit-log every retrieval. This project has no authentication, no enterprise ACL integration and no audit log.
 
-### English questions (small probe)
+### English questions (small probe) — draft, unverified gold set
 
 English translations of 15 dev questions (`eval/gold/questions_en.jsonl`) were run with the router: answer score 0.720 in English vs 0.653 for the Turkish originals; page_recall@5 0.769 vs 0.846 (`runs/2026-11-17-router-english-probe/`). n = 15 is too small to call a difference; 6 of the 15 English questions were answered in Turkish. This run was made after the access roles were written to the index.
 
@@ -124,7 +127,7 @@ Development was done on Windows 11 with an RTX 3050 Laptop GPU with 4 GB VRAM (t
 **Prerequisites**
 
 - [uv](https://docs.astral.sh/uv/) (it manages the Python version; the project requires Python ≥ 3.11, `.python-version` is 3.11), Git, Docker Desktop.
-- An NVIDIA GPU for the GPU steps (Docling, embedding, rerank): on Windows the `ml` group installs PyTorch from the CUDA 13.0 wheels. On macOS the lock file resolves the CPU/MPS PyTorch from PyPI; the GPU steps are untested there, and the `device: cuda` values in `configs/*.yaml` would need to be changed.
+- An NVIDIA GPU for the GPU steps (Docling, embedding, rerank): on Windows the `ml` group installs PyTorch from the CUDA 13.0 wheels. On macOS the lock file resolves the CPU/MPS PyTorch from PyPI; the GPU steps are untested there. On any machine without an NVIDIA GPU (not only macOS), the `device: cuda` values in `configs/*.yaml` and the scripts' `--device` flags must be changed before evaluation or the apps.
 - For the `claude_code` backend: a Claude subscription and a one-time login with the Claude Code CLI on the machine. `ANTHROPIC_API_KEY` must **not** be set while this backend is used; if it is, usage is billed to the API instead of the subscription. For a demo exposed to others, use the `anthropic_api` backend with an API key.
 - Clone the repository into a folder whose path has no non-ASCII characters (the path on the development machine contained `ş`, which required two workarounds).
 
@@ -134,7 +137,7 @@ Development was done on Windows 11 with an RTX 3050 Laptop GPU with 4 GB VRAM (t
 uv sync --group ml --group app
 ```
 
-`uv sync` keeps only the groups you name; add `--group observability` for the Langfuse export. `uv run` does not remove installed groups.
+`uv sync` installs the groups you name plus the default `dev` group and removes the others; if you also need the Langfuse export, add `--group observability` to the same command. `uv run` does not remove installed groups.
 
 Windows (PowerShell):
 
@@ -150,7 +153,7 @@ cp .env.example .env
 unset ANTHROPIC_API_KEY
 ```
 
-`.env` ships with `LLM_BACKEND=claude_code`. To test the LLM connection with a single call (`claude_code` backend; a second run is served from the cache):
+`Remove-Item` / `unset` clears the variable for the current terminal session only; if it is set permanently, also remove it from the user or system environment variables. `.env` ships with `LLM_BACKEND=claude_code`. To test the LLM connection with a single call (`claude_code` backend; a second run is served from the cache):
 
 ```bash
 uv run python scripts/smoke_llm.py
@@ -175,7 +178,7 @@ uv run python scripts/build_index.py --variant fixed
 uv run python scripts/build_index.py --variant structure
 ```
 
-Both index variants need the Docling output (the access roles are computed from it). `parse.py` (Docling) and `build_index.py` default to `--device cuda`; on a machine without a GPU, `--device cpu` can be passed (untried, and it will be slow). A quick check:
+The Docling parse took about 95 minutes on the reference GPU (RTX 3050 Laptop). Both index variants need the Docling output (the access roles are computed from it). `parse.py` (Docling) and `build_index.py` default to `--device cuda`; on a machine without a GPU, `--device cpu` can be passed (untried, and it will be slow). A quick check:
 
 ```bash
 uv run python scripts/search.py --variant fixed --mode fts "Akbank net kar 2024"
@@ -188,9 +191,9 @@ uv run python scripts/run_eval.py --config baseline --split dev
 uv run python scripts/run_eval.py --config router --split dev
 ```
 
-Each run writes `summary.json` and a per-question `traces.jsonl` under `runs/YYYY-MM-DD-<topic>/`. The test split is run only for important versions and requires `--confirm-test`. Gold set distribution: `uv run python scripts/gold_stats.py`.
+Each run writes `summary.json` and a per-question `traces.jsonl` under `runs/YYYY-MM-DD-<topic>/`. One `run_eval` on dev makes about 84 generator calls (more than one per question for the router) plus judge calls; with the `claude_code` backend these count against the subscription quota. The configs use `device: cuda` (change it on a machine without a GPU, see Prerequisites). The test split is run only for important versions and requires `--confirm-test`. Gold set distribution: `uv run python scripts/gold_stats.py`.
 
-**5. Apps** (all bind to `127.0.0.1` only)
+**5. Apps** (all bind to `127.0.0.1` only; the chat demo and the API also use the `device: cuda` values under `configs/`)
 
 ```bash
 uv run streamlit run scripts/review_app.py
