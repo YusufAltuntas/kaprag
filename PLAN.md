@@ -126,6 +126,7 @@ Sabah raporunu doldur.
 | 2026-11-17 | `structure` chunker'ı: metin grupları tablo ya da grafik metniyle kesilince kapanır (bir chunk yalnızca kendi satırlarının sayfalarını kapsar); grafik içi metin sayfa başına ayrı `picture_text` chunk'ı olur; başlık satırı anlamsız (dejenere) tablolarda bölünen parçalarda başlık tekrarlanmaz. FTS sorgusu, sorudaki kelimelerin Türkçe kök/lexeme'lerinin OR'udur. | Eval'de isabet kuralı "gold sayfa chunk'ın sayfa aralığında" olduğu için şişmiş sayfa aralıkları `structure` lehine yanlı recall üretirdi; `plainto_tsquery` (AND) doğal dil sorularında boş dönüyor |
 | 2026-11-17 | Eval harness (T5) kuralları: test split'i `--confirm-test` olmadan çalışmaz; `error` olan soru doğruluk metriklerinde yanlış sayılır ve ayrıca raporlanır; `answer_with_assumption` kontrolü deterministiktir (reddetmeden, gold esasla eşleşen dolu `basis`); gecikme yüzdeliklerinden cache isabetli sorular çıkarılır, maliyet cache isabetinde de ilk çağrının maliyetidir; judge maliyeti pipeline maliyetinden ayrı raporlanır. Şemada `expected.unit` ∈ {TL, %, adet}, `verified` ile `verified_at` birlikte dolar. | `eval/README.md` bu ayrıntıları açık bırakıyor; sayıların tekrar koşularda aynı çıkması ve test split'inin korunması için |
 | 2026-11-17 | 30 pilot sorusu yalnızca dev split'inden seçilir. | Pilot sonucuna göre taslaklar ayarlanacağı için (eval §7 adım 9) pilot, test split'ine dokunmamalı; §2 yalnızca "tabakalı" diyor |
+| 2026-11-17 | T7, T6'dan önce yapıldı (indeks kurulumu ve Docling sürerken). Review arayüzü kuralları: **Onayla** yalnızca o soruda `verified`/`verified_at` yazar; **Düzenle** tek başına doğrulamaz ("Kaydet" / "Kaydet ve onayla"), doğrulanmış bir soru düzenlenince eski `verified_at` kalır; **Reddet** satırı `questions.jsonl`'dan çıkarıp `eval/gold/rejected.jsonl`'a taşır; kullanıcının eklediği soru `author: human`, `verified: true` kaydedilir ve split'i (tip, banka) tabakasında 60:120 oranını koruyacak şekilde atanır (eşitlikte seed 42'li hash). Streamlit ayrı `app` grubunda (`uv sync --group ml --group app`). | T7'nin T6 çıktısına bağımlılığı yok; şema katı olduğu için "reddedildi" bayrağı yerine ayrı dosya; soruyu PDF'e bakarak yazan kullanıcı zaten doğrulamış olur; CI kurulumu hafif kalsın |
 
 ## Engeller
 
@@ -206,7 +207,7 @@ _(Gece oturumu doldurur: biten görevler, kalanlar, taslak ablation tablosu, kul
 - **Commit:** `feat: draft gold question set (unverified)`
 
 ### Task T7 — Review arayüzü (P0)
-- [ ] Tamamlandı
+- [x] Tamamlandı
 - Streamlit `scripts/review_app.py`: doğrulanmamış sorular listesi; soru, tip, beklenen cevap ve kanıt sayfasının PDF görüntüsü (PyMuPDF ile render) yan yana; **Onayla / Düzenle / Reddet**. Ayrıca kullanıcının yeni soru eklediği bir form (`author: "human"`). Değişiklikler `questions.jsonl`'a yazılır (`verified_at` ile).
 - **Kabul:** uygulama açılıyor (headless başlatma + HTTP 200); geri yazma fonksiyonu için birim testi yeşil.
 - **Commit:** `feat: add Streamlit review app for gold set verification`
