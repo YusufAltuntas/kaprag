@@ -98,7 +98,8 @@ class LLMClient:
         Raises `LLMCallError` when the call fails for good (transient errors after
         3 attempts, a non-retryable backend error, or invalid JSON twice). The
         failure is traced first, so a batch can catch it, mark the item as an
-        error and move on. Failed calls are never cached.
+        error and move on. Failed calls are never cached. A cached reply that no longer
+        validates against `schema` is treated as a miss and overwritten by the new reply.
         """
         if model not in pricing.PRICES:
             raise ValueError(f"no price for model {model!r}; add it to kaprag.llm.pricing")
@@ -108,8 +109,14 @@ class LLMClient:
             backend=self.backend.name, model=model, system=system, user=user, schema=schema_json
         )
 
-        if self.cache is not None and (hit := self.cache.get(key)) is not None:
-            parsed = parse_output(hit["text"], schema) if schema is not None else None
+        hit = self.cache.get(key) if self.cache is not None else None
+        parsed: BaseModel | None = None
+        if hit is not None and schema is not None:
+            try:
+                parsed = parse_output(hit["text"], schema)
+            except ValidationError:
+                hit = None  # stale entry: call the backend again and overwrite it
+        if hit is not None:
             result = LLMResult(
                 text=hit["text"],
                 parsed=parsed,

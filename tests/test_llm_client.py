@@ -116,6 +116,30 @@ def test_failed_call_is_not_cached(make_client):
     assert (result.text, result.cached) == ("ok", False)
 
 
+def test_stale_cache_entry_that_fails_validation_is_a_miss_and_is_replaced(make_client, tmp_dir):
+    old, new = '{"answer": "old", "confidence": 1}', '{"answer": "new", "confidence": 0.5}'
+    backend = FakeBackend([old, new])
+    client = make_client(backend)
+    run(client.complete("sys", "user", MODEL, schema=Answer))
+    [entry] = (tmp_dir / "cache").rglob("*.json")
+    stale = json.loads(entry.read_text(encoding="utf-8"))
+    stale["text"] = '{"answer": "old"}'  # e.g. written before the schema gained a field
+    entry.write_text(json.dumps(stale), encoding="utf-8")
+
+    result = run(client.complete("sys", "user", MODEL, schema=Answer))
+
+    assert (result.parsed, result.cached, result.attempts) == (
+        Answer(answer="new", confidence=0.5),
+        False,
+        1,
+    )
+    assert len(backend.requests) == 2
+    assert json.loads(entry.read_text(encoding="utf-8"))["text"] == new
+    again = run(client.complete("sys", "user", MODEL, schema=Answer))
+    assert (again.parsed.answer, again.cached) == ("new", True)
+    assert len(backend.requests) == 2
+
+
 def test_cache_can_be_disabled(tmp_dir):
     backend = FakeBackend(["a", "b"])
     client = LLMClient(backend, cache_dir=None, trace_path=tmp_dir / "t.jsonl")
