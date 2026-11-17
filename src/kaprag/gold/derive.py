@@ -95,12 +95,24 @@ def rank(drafts: Sequence[Draft], min_gap_rel: Decimal = MIN_GAP_REL) -> list[Dr
 
 
 def _rounding_excess(d: Draft) -> Decimal:
-    """How far a source's tolerance was widened beyond the spec rule (printed rounding)."""
+    """How far a source's tolerance was widened beyond the spec rule (printed rounding),
+    in the tolerance's own terms (a fraction for `rel`, an amount in the unit for `abs`)."""
     t = d.expected.tolerance
-    base = TOLERANCE_BY_UNIT[d.expected.unit]
     if t is None or d.expected.unit is None:
         return Decimal(0)
+    base = TOLERANCE_BY_UNIT[d.expected.unit]
     return max(Decimal(0), _dec(t.amount) - _dec(base.amount))
+
+
+def _relative_excess(d: Draft) -> Decimal:
+    """The rounding excess as a fraction of the source value: an absolute excess (a count
+    printed as "15 bin") is divided by the value, a relative one (money) is already one."""
+    excess = _rounding_excess(d)
+    t = d.expected.tolerance
+    if excess == 0 or t is None or t.type == "rel":
+        return excess
+    value = abs(_dec(d.expected.value))
+    return excess / value if value else Decimal(0)
 
 
 # --- formatting ------------------------------------------------------------------------
@@ -269,8 +281,9 @@ def _pair(metric_id: str, year: int, basis: str | None, a: Draft, b: Draft) -> l
             delta = percent_change(v_lo, v_hi)
             question = f"{lead}{metric.noun}, {BANK_GENITIVE[bank_lo]}kinden yüzde kaç fazlaydı?"
             answer = f"%{_tr_number(delta, 2)}"
-            # relative rounding of the inputs propagates into the % difference
-            extra = (v_hi / v_lo) * (_rounding_excess(hi) + _rounding_excess(lo)) * 100
+            # hi/lo - 1 with relative input errors e_hi, e_lo moves by about
+            # (hi/lo) * (e_hi + e_lo); in percentage points that is * 100
+            extra = (v_hi / v_lo) * (_relative_excess(hi) + _relative_excess(lo)) * 100
             amount = (_dec(COMPUTED_PERCENT_TOLERANCE.amount) + extra).quantize(
                 _CENT, rounding=ROUND_CEILING
             )

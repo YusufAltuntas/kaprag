@@ -167,3 +167,33 @@ def test_gap_tolerance_grows_with_rounded_inputs():
     assert gap.expected.tolerance.amount == 2.92  # 0.5 + 2.6 * 0.0093 * 100, rounded up
     exact = compose_from_probes([probe("akbank", 2025, 2_600_000), lo])
     assert next(d for d in exact if d.type == "hesaplama").expected.tolerance.amount == 0.5
+
+
+def test_gap_tolerance_scales_an_absolute_count_excess_by_the_source_value():
+    """21 000 +- 500 employees vs 15 000 (exact): the true gap lies in
+    [20 500 / 15 000 - 1, 21 500 / 15 000 - 1] = [36.67%, 43.33%], i.e. +-3.33 points,
+    so the tolerance is 0.5 + 1.4 * (500 / 21 000) * 100 = 3.8333 -> 3.84."""
+    from kaprag.eval.schema import Tolerance
+
+    hi = probe("akbank", 2023, 21_000, metric="employees", unit="adet", basis=None)
+    hi = hi.model_copy(
+        update={
+            "expected": hi.expected.model_copy(
+                update={"tolerance": Tolerance(type="abs", amount=500)}
+            )
+        }
+    )
+    lo = probe("yapikredi", 2023, 15_000, metric="employees", unit="adet", basis=None)
+    gap = next(d for d in compose_from_probes([hi, lo]) if d.type == "hesaplama")
+    assert gap.expected.value == 40.0
+    assert gap.expected.tolerance.type == "abs" and gap.expected.tolerance.amount == 3.84
+
+
+def test_rounding_excess_is_zero_without_a_unit():
+    from kaprag.gold.derive import _rounding_excess
+
+    d = probe("akbank", 2025, 1)
+    d = d.model_copy(
+        update={"expected": Expected(answer="x", value=None, unit=None, tolerance=None)}
+    )
+    assert _rounding_excess(d) == 0
