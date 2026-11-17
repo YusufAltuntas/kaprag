@@ -22,9 +22,21 @@ SCRIPT = ROOT / "scripts" / "chat_app.py"
 
 
 @pytest.fixture
-def fake(tmp_dir, monkeypatch):
+def server_address():
+    """Sets Streamlit's effective `server.address` for AppTest; restored afterwards."""
+    from streamlit import config
+
+    before = config.get_option("server.address")
+    yield lambda address: config.set_option("server.address", address)
+    config.set_option("server.address", before)
+
+
+@pytest.fixture
+def fake(tmp_dir, monkeypatch, server_address):
     monkeypatch.setenv("KAPRAG_SERVE_FACTORY", "serve_fakes:open_fake_service")
     monkeypatch.setenv(FAKE_ROOT_ENV, str(tmp_dir))
+    monkeypatch.setenv("LLM_BACKEND", "claude_code")
+    server_address("127.0.0.1")  # independent of the directory pytest runs from
     st.cache_resource.clear()
     LAST_SERVICE.clear()
     yield
@@ -109,6 +121,35 @@ def test_pipeline_error_is_a_short_turkish_message(fake):
     ask(at, "Bu soru hata versin")
     assert any("Cevap üretilemedi" in e.value for e in at.error)
     assert all("exploded" not in e.value for e in at.error)
+
+
+@pytest.mark.parametrize("address", [None, "0.0.0.0"])
+def test_public_address_on_the_subscription_is_refused_before_the_pipeline_opens(
+    fake, server_address, address
+):
+    server_address(address)
+    at = run_app()
+    assert any("Uygulama başlatılmadı" in e.value for e in at.error)
+    assert any("--server.address 127.0.0.1" in e.value for e in at.error)
+    assert LAST_SERVICE == []  # the pipeline was never opened
+    assert len(at.chat_input) == 0
+
+
+def test_public_address_on_the_api_key_warns_and_answers(fake, server_address, monkeypatch):
+    server_address("0.0.0.0")
+    monkeypatch.setenv("LLM_BACKEND", "anthropic_api")
+    at = run_app()
+    assert any("ağdan da erişilebilir" in w.value for w in at.warning)
+    ask(at, "Akbank kaç şube?")
+    assert any("694 şubesi" in m.value for m in at.markdown)
+
+
+def test_loopback_address_on_the_subscription_answers_without_warning(fake, server_address):
+    server_address("localhost")
+    at = run_app()
+    assert len(at.warning) == 0
+    ask(at, "Akbank kaç şube?")
+    assert any("694 şubesi" in m.value for m in at.markdown)
 
 
 def free_port() -> int:

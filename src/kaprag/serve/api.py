@@ -32,7 +32,8 @@ from kaprag.serve.service import (
 
 DESCRIPTION = (
     "Citation-giving question answering over the 2023-2025 annual reports of four Turkish "
-    "banks. Answers are in the language of the question; citations are (doc, page) with a "
+    "banks. Questions may be in Turkish or English (answers usually, but not always, follow "
+    "the question's language); citations are (doc, page) with a "
     "1-based PDF page index, viewable at /page/{doc}/{page}.\n\n"
     "No authentication: this is a local demo, bound to 127.0.0.1 by default.\n\n"
     "Access roles (public, analyst, risk) are SIMULATED: the reports are public documents "

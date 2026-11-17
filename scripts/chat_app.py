@@ -4,6 +4,8 @@ Run (needs the `app` dependency group: `uv sync --group ml --group app --group o
   uv run streamlit run scripts/chat_app.py
   uv run streamlit run scripts/chat_app.py -- --config rerank
 
+Started on a non-loopback address (e.g. outside the repo root, where
+`.streamlit/config.toml` is not read) it warns, and refuses on the `claude_code` backend.
 The pipeline runs in this process through `kaprag.serve` (the ask API need not run).
 Its config is `--config` (after `--`), else $KAPRAG_SERVE_CONFIG, else `router`; the
 LLM backend is LLM_BACKEND (environment or `.env`). $KAPRAG_SERVE_FACTORY
@@ -34,6 +36,7 @@ from kaprag.serve import (
     PipelineFailedError,
     ServiceClosedError,
 )
+from kaprag.serve.exposure import check_exposure
 
 FACTORY_ENV = "KAPRAG_SERVE_FACTORY"
 DEFAULT_FACTORY = "kaprag.serve:open_service"
@@ -55,6 +58,19 @@ PAGE_ERRORS = {
     "page_range": "Bu sayfa dokümanda yok.",
     "missing_pdf": "PDF bu bilgisayarda yok (data/raw/); önce `scripts/download.py` ile indirin.",
 }
+PUBLIC_WARNING = (
+    "Bu uygulama yalnızca bu bilgisayardan değil, ağdan da erişilebilir durumda "
+    "(sunucu adresi: {address}). Kimlik doğrulama yoktur: erişebilen herkes soru sorabilir "
+    "ve LLM maliyeti oluşturabilir."
+)
+REFUSED_MESSAGE = (
+    "Uygulama başlatılmadı: sunucu ağa açık (adres: {address}) ve LLM arka ucu "
+    "`{backend}`. Başkalarına açık bir demo Claude aboneliğiyle değil, API anahtarıyla "
+    "çalışmalıdır. Güvenli başlatmak için: repo kök dizininden `uv run streamlit run "
+    "scripts/chat_app.py` ile çalıştırın (`.streamlit/config.toml` 127.0.0.1'e bağlar), "
+    "ya da `--server.address 127.0.0.1` verin, ya da ağa açmak gerçekten gerekiyorsa "
+    "`LLM_BACKEND=anthropic_api` kullanın."
+)
 SIMULATED_NOTE = (
     "Erişim modeli simüledir: raporlar kamuya açıktır, roller yalnızca erişim "
     "filtrelemesini göstermek için kurala göre atanmıştır."
@@ -79,7 +95,6 @@ def config_name() -> str | None:
 def get_service(factory_ref: str, config: str | None) -> Any:
     """One service per process: the models load once and stay loaded until the process
     exits (Streamlit has no shutdown hook; exiting releases the GPU and the connection)."""
-    load_dotenv(REPO_ROOT / ".env", override=False)
     module_name, _, attr = factory_ref.partition(":")
     factory = getattr(importlib.import_module(module_name), attr)
     return factory(config)
@@ -214,6 +229,18 @@ def ask(service: Any, question: str, role: str) -> dict[str, Any]:
 
 def main() -> None:
     st.set_page_config(page_title="kaprag sohbet", layout="wide")
+    load_dotenv(REPO_ROOT / ".env", override=False)
+    # No authentication: a non-loopback bind must not expose the subscription. The
+    # address is the effective one (config.toml, flags), whatever the working directory.
+    address = st.get_option("server.address")
+    backend = os.environ.get("LLM_BACKEND", "claude_code")
+    exposure = check_exposure(address, backend)
+    shown = address or "tüm arayüzler (adres ayarlanmamış)"
+    if not exposure.allowed:
+        st.error(REFUSED_MESSAGE.format(address=shown, backend=backend))
+        st.stop()
+    if exposure.public:
+        st.warning(PUBLIC_WARNING.format(address=shown))
     factory_ref = os.environ.get(FACTORY_ENV) or DEFAULT_FACTORY
     try:
         service = get_service(factory_ref, config_name())
