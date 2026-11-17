@@ -87,7 +87,8 @@ Reading the table:
 - **Noise:** with n = 84 the standard error of one proportion is about 5 points. Differences of 1–3 points between rerank / structure / metadata_filter are within noise. The larger steps are baseline → rerank (≈14 points) and rerank → router (≈6 points, close to the standard error; concentrated in the two targeted types, calculation and comparison). The router's simple-route answers are identical to `rerank`, so the difference comes only from the routed comparison/calculation questions. By-type cells rest on 6–22 questions on dev and 14–38 on test.
 - **Correct abstention** has no separate column in the dev table; the `cevapsiz` column shows it (1.00 in every dev run).
 - **structure** did not improve answer accuracy; it clearly improved citation precision (its chunks are single-page). Part of its lower page recall may be a measurement effect: fixed chunks span several pages and meet the "gold page within the chunk's page span" rule more easily. This was not verified.
-- **Latency** excludes questions with a cached LLM call. Router dev latency could be measured on only 9 questions (the simple-route answers were cache hits from the `rerank` run), mostly agent-route ones: p50 25.0 s — not comparable to the other rows; use the test-split latency for the router.
+- **Router page recall:** on multi-route questions it is computed over an interleaved union of the per-look-up lists, each filtered by the plan's bank and year, so it is not like-for-like with the single-query rows.
+- **Latency** is wall time per question at concurrency 4, including waits on the retriever lock and the LLM concurrency limit. It excludes questions with a cached LLM call. Router dev latency could be measured on only 9 questions (the simple-route answers were cache hits from the `rerank` run), mostly agent-route ones: p50 25.0 s — not comparable to the other rows; use the test-split latency for the router.
 - **Cost** is "API-equivalent": tokens × API list price (Haiku 5.5 $0.10 / $0.50, Sonnet 5.5 $2 / $10 per 1M input/output tokens). Development ran on a Claude subscription, which shows no dollars. Judge cost is excluded from cost per question.
 - The optional step T9e (swapping the embedding model for multilingual-e5-large) was not run.
 
@@ -191,7 +192,7 @@ uv run python scripts/run_eval.py --config baseline --split dev
 uv run python scripts/run_eval.py --config router --split dev
 ```
 
-Each run writes `summary.json` and a per-question `traces.jsonl` under `runs/YYYY-MM-DD-<topic>/`. One `run_eval` on dev makes about 84 generator calls (more than one per question for the router) plus judge calls; with the `claude_code` backend these count against the subscription quota. The configs use `device: cuda` (change it on a machine without a GPU, see Prerequisites). The test split is run only for important versions and requires `--confirm-test`. Gold set distribution: `uv run python scripts/gold_stats.py`.
+Each run writes `summary.json` and a per-question `traces.jsonl` under `runs/YYYY-MM-DD-<topic>/`. One `run_eval` makes at least one generator call per question (84 on dev), more for the router, plus judge calls; with the `claude_code` backend these count against the subscription quota. The configs use `device: cuda` (change it on a machine without a GPU, see Prerequisites). The test split is run only for important versions and requires `--confirm-test`. Gold set distribution: `uv run python scripts/gold_stats.py`.
 
 **5. Apps** (all bind to `127.0.0.1` only; the chat demo and the API also use the `device: cuda` values under `configs/`)
 
@@ -224,6 +225,7 @@ A GitHub Actions workflow (`.github/workflows/ci.yml`) is defined to run the sam
 - **Garanti:** its reports lack the full statutory financial statements (the other three banks' reports have them); the corpus is uneven in this respect.
 - **Main failure source on the agent path:** extracting and normalising single figures.
 - **Pooling bias:** the evidence pages in the gold set were completed partly with the same retrievers that are being evaluated.
+- **Dev/test fact overlap:** the split is stratified by (type, bank) and ignores `derived_from`; 61 of the 159 test questions share a source single-fact question with a dev question, including 24 of the 26 test `karsilastirma` questions. Comparison and calculation are the router's target types and the router was chosen on dev, so for these types the test set is not fully held out. No sign of harm was found: no gold content is in any prompt or pipeline code, and the router's test accuracy is 0.59 on the overlapping questions against 0.71 on the rest.
 - **Not yet done:** CI has not run on GitHub; the Langfuse exporter is unit-tested and dry-run-checked but has not been run against a real Langfuse server; nothing has been tried on macOS.
 
 ## Where the details live

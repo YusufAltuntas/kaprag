@@ -87,7 +87,8 @@ Tabloyu okurken:
 - **Gürültü:** n = 84'te tek bir oranın standart hatası yaklaşık 5 puandır. rerank / structure / metadata_filter arasındaki 1–3 puanlık farklar gürültü içindedir. Daha büyük adımlar baseline → rerank (≈14 puan) ve rerank → router'dır (≈6 puan, standart hataya yakın; artış hedeflenen iki tipte, hesaplama ve karşılaştırmada toplanıyor). Router'ın basit yoldaki cevapları `rerank` ile aynıdır; fark yalnızca yönlendirilen karşılaştırma/hesaplama sorularından gelir. Tipe göre hücreler dev'de 6–22, test'te 14–38 soruya dayanır.
 - **Doğru reddetme** dev tablosunda ayrı sütun olarak yok; `cevapsiz` sütunu bunu gösterir (her dev koşusunda 1.00).
 - **structure** cevap doğruluğunu artırmadı; kaynak doğruluğunu (precision) belirgin biçimde artırdı (chunk'ları tek sayfalık). Daha düşük page recall'unun bir kısmı ölçüm etkisi olabilir: fixed chunk'lar birkaç sayfaya yayıldığı için "gold sayfa chunk'ın sayfa aralığında" kuralını daha kolay karşılar. Bu doğrulanmadı.
-- **Gecikme** önbellekten gelen LLM çağrısı içeren soruları dışarıda bırakır. Router'ın dev gecikmesi yalnızca 9 soruda ölçülebildi (basit yolun cevapları `rerank` koşusunun önbelleğinden geldi), bunların çoğu agent yolundaydı: p50 25.0 sn — diğer satırlarla karşılaştırılamaz; router için test split'indeki gecikmeye bakın.
+- **Router'ın page recall'u:** çok adımlı yoldaki sorularda, her biri planın banka ve yılına göre filtrelenmiş alt sorgu listelerinin sırayla harmanlanmış birleşimi üzerinden hesaplanır; bu yüzden tek sorgulu satırlarla birebir karşılaştırılamaz.
+- **Gecikme** soru başına, eşzamanlılık 4'te ölçülen gerçek süredir; retriever kilidinde ve LLM eşzamanlılık sınırında beklenen süre de buna dahildir. Önbellekten gelen LLM çağrısı içeren soruları dışarıda bırakır. Router'ın dev gecikmesi yalnızca 9 soruda ölçülebildi (basit yolun cevapları `rerank` koşusunun önbelleğinden geldi), bunların çoğu agent yolundaydı: p50 25.0 sn — diğer satırlarla karşılaştırılamaz; router için test split'indeki gecikmeye bakın.
 - **Maliyet** "API-eşdeğeri"dir: token × API liste fiyatı (1M girdi/çıktı token için Haiku 5.5 $0.10 / $0.50, Sonnet 5.5 $2 / $10). Geliştirme Claude aboneliğiyle yapıldı, abonelik dolar göstermez. Judge maliyeti soru başına maliyete dahil değildir.
 - İsteğe bağlı T9e adımı (embedding modelini multilingual-e5-large ile değiştirmek) koşulmadı.
 
@@ -191,7 +192,7 @@ uv run python scripts/run_eval.py --config baseline --split dev
 uv run python scripts/run_eval.py --config router --split dev
 ```
 
-Her koşu `runs/YYYY-MM-DD-<konu>/` altına `summary.json` ve soru başına `traces.jsonl` yazar. Dev'de bir `run_eval` koşusu yaklaşık 84 üretici çağrısı (router'da soru başına birden fazla) artı judge çağrıları yapar; `claude_code` backend'inde bunlar abonelik kotasından düşer. Konfigürasyonlar `device: cuda` kullanır (GPU'suz makinede değiştirilmeli, bkz. Gereksinimler). Test split'i yalnızca önemli versiyonlarda koşulur ve `--confirm-test` ister. Gold set'in dağılımı: `uv run python scripts/gold_stats.py`.
+Her koşu `runs/YYYY-MM-DD-<konu>/` altına `summary.json` ve soru başına `traces.jsonl` yazar. Bir `run_eval` koşusu soru başına en az bir üretici çağrısı (dev'de 84), router'da daha fazlası, artı judge çağrıları yapar; `claude_code` backend'inde bunlar abonelik kotasından düşer. Konfigürasyonlar `device: cuda` kullanır (GPU'suz makinede değiştirilmeli, bkz. Gereksinimler). Test split'i yalnızca önemli versiyonlarda koşulur ve `--confirm-test` ister. Gold set'in dağılımı: `uv run python scripts/gold_stats.py`.
 
 **5. Uygulamalar** (hepsi yalnızca `127.0.0.1`'e bağlanır; sohbet demosu ve API de `configs/` altındaki `device: cuda` değerlerini kullanır)
 
@@ -224,6 +225,7 @@ GitHub Actions iş akışı (`.github/workflows/ci.yml`) aynı iki komutu Window
 - **Garanti:** raporlarında yasal finansal tabloların tamamı yok (diğer üç bankanınkinde var); korpus bu açıdan dengeli değil.
 - **Agent yolunda ana hata kaynağı** tekil rakamların çıkarılması ve normalize edilmesidir.
 - **Havuzlama yanlılığı:** gold set'teki kanıt sayfaları kısmen, değerlendirilen retriever'ların kendisiyle tamamlandı.
+- **Dev/test arasında olgu örtüşmesi:** split (tip, banka) çiftine göre tabakalı yapıldı ve `derived_from` alanını dikkate almıyor; 159 test sorusunun 61'i bir dev sorusuyla aynı kaynak tekil soruyu paylaşıyor, 26 test `karsilastirma` sorusunun 24'ü de bunlara dahil. Karşılaştırma ve hesaplama router'ın hedef tipleri ve router dev'de seçildi; bu yüzden test seti bu tipler için tam olarak ayrı tutulmuş sayılmaz. Zarar gördüğüne dair bir işaret bulunmadı: hiçbir prompt'ta veya pipeline kodunda gold içerik yok ve router'ın test doğruluğu örtüşen sorularda 0.59, geri kalanlarda 0.71.
 - **Henüz yapılmayanlar:** CI GitHub'da çalışmadı; Langfuse aktarımı birim testli ve dry-run ile kontrol edildi ama gerçek bir Langfuse sunucusuna karşı çalıştırılmadı; macOS'ta deneme yapılmadı.
 
 ## Ayrıntılar nerede
