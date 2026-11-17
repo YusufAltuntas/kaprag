@@ -54,8 +54,8 @@ class SqlFilter:
     Immutable; each method returns a new filter with one more condition. Values are
     never put into the SQL text: each condition refers to a named placeholder
     (`%(f0)s`, `%(f1)s`, ...) bound at execution. Column names are quoted identifiers
-    chosen by code, never by model output. A new kind of condition (e.g. an access-role
-    overlap, `access_roles && %(fN)s`) is one more method calling `_add`.
+    chosen by code, never by model output. A new kind of condition is one more method
+    calling `_add`.
     """
 
     conditions: tuple[sql.Composable, ...] = ()
@@ -64,6 +64,11 @@ class SqlFilter:
     def any_of(self, column: str, values: Sequence[Any]) -> SqlFilter:
         """`column = ANY(values)`: the SQL `column IN (values)` as one array parameter."""
         return self._add("{column} = ANY({value})", column, values)
+
+    def overlaps(self, column: str, values: Sequence[str]) -> SqlFilter:
+        """`column && values::text[]`: a text-array column shares at least one value
+        (the access-role condition, see `kaprag.access.filter`)."""
+        return self._add("{column} && {value}::text[]", column, values)
 
     def _add(self, template: str, column: str, values: Sequence[Any]) -> SqlFilter:
         if not values:

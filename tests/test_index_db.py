@@ -1,3 +1,4 @@
+import functools
 import os
 import random
 import uuid
@@ -6,12 +7,17 @@ import pytest
 from pgvector import Vector
 from psycopg import sql
 
+from kaprag.access.rules import DocumentAccess
 from kaprag.chunking.base import Chunk
 from kaprag.corpus import Document
-from kaprag.index.store import EMBEDDING_DIM, connect, ensure_schema, replace_document, row_counts
+from kaprag.index import store
+from kaprag.index.store import EMBEDDING_DIM, connect, ensure_schema, row_counts
 from kaprag.retrieval import DEFAULT_HNSW_EF_SEARCH, SqlFilter, dense_search, fts_search
 
 pytestmark = pytest.mark.db
+
+# These tests are about storage and search, not roles: no restricted pages.
+replace_document = functools.partial(store.replace_document, access=DocumentAccess())
 
 
 @pytest.fixture

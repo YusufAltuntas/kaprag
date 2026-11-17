@@ -1,4 +1,5 @@
-"""Chunking a document for a variant from its parsed output, and chunk statistics."""
+"""Chunking a document for a variant from its parsed output, its access-role map, and
+chunk statistics."""
 
 import statistics
 from collections import Counter
@@ -6,6 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from kaprag.access.rules import DocumentAccess
 from kaprag.chunking.base import Chunk, TokenSpans
 from kaprag.chunking.fixed import chunk_fixed
 from kaprag.chunking.structure import chunk_structure
@@ -44,6 +46,20 @@ def chunk_document(
     if not is_complete(path.parent, job):
         raise MissingInput(f"{doc.doc_id}: docling output incomplete (no completion marker)")
     return chunk_structure(doc.doc_id, iter_elements(path), token_spans)
+
+
+def load_document_access(doc: Document, parsed_dir: Path = DEFAULT_PARSED_DIR) -> DocumentAccess:
+    """A document's per-page role map (`kaprag.access.rules`), from its Docling rows,
+    for both variants. Raises MissingInput when those rows are missing or incomplete:
+    roles are never defaulted to public."""
+    path = parsed_path("docling", doc.doc_id, parsed_dir)
+    if not path.is_file():
+        raise MissingInput(f"{doc.doc_id}: no docling output at {path} (needed for access roles)")
+    if doc.pages is None:
+        raise MissingInput(f"{doc.doc_id}: page count missing from the manifest")
+    if not is_complete(path.parent, Job(doc.doc_id, raw_path(doc.doc_id), 1, doc.pages)):
+        raise MissingInput(f"{doc.doc_id}: docling output incomplete (no completion marker)")
+    return DocumentAccess.from_elements(iter_elements(path))
 
 
 @dataclass(frozen=True)

@@ -15,6 +15,9 @@
     query_filter:             # optional; absent (or enabled: false) = no metadata filter
       enabled: true
       model: claude-haiku-5-5 # parses banks/years from the question (kaprag.rag.query_filter)
+    access:                   # optional; absent = no access condition (simulated roles)
+      role: public            # public | analyst | risk (kaprag.access); a caller may
+                              # override it per request (RagPipeline.run(access_role=...))
     retrieve_k: 10            # ranked items returned to the harness (recall@10, mrr@10)
     context_k: 5              # top items put into the prompt (<= retrieve_k)
     generation:
@@ -34,8 +37,16 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
+from kaprag.access.roles import effective_roles
 from kaprag.rag.retriever import RETRIEVAL_MODES
 
 
@@ -72,6 +83,16 @@ class QueryFilterConfig(_Strict):
     model: str = "claude-haiku-5-5"
 
 
+class AccessConfig(_Strict):
+    role: str
+
+    @field_validator("role")
+    @classmethod
+    def _known_role(cls, role: str) -> str:
+        effective_roles(role)  # raises for an unknown role
+        return role
+
+
 class GenerationConfig(_Strict):
     model: str = "claude-haiku-5-5"
 
@@ -86,6 +107,7 @@ class RagConfig(_Strict):
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
     rerank: RerankConfig | None = None
     query_filter: QueryFilterConfig | None = None
+    access: AccessConfig | None = None
     retrieve_k: int = Field(default=10, ge=1)
     context_k: int = Field(default=5, ge=1)
     generation: GenerationConfig = Field(default_factory=GenerationConfig)

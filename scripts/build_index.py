@@ -6,8 +6,11 @@ Run:
   uv run python scripts/build_index.py --variant structure --skip-existing   # resume
 
 `fixed` reads data/parsed/pymupdf, `structure` reads data/parsed/docling (only documents
-with a completion marker). Each document's rows are replaced in one transaction, so a
-document is either fully indexed or untouched; rerunning is idempotent. After an
+with a completion marker). Both variants assign each row's `access_roles`
+(simulated access model, `kaprag.access.rules`) from the document's Docling rows, so
+a document without complete Docling output is skipped in either variant. Each
+document's rows are replaced in one transaction, so a document is either fully
+indexed or untouched; rerunning is idempotent. After an
 interruption, `--skip-existing` builds only documents with no rows in the table (use
 `--doc` to force a rebuild of specific ones). A failing or missing document is logged
 and the run continues; the exit code is 1 if any document failed. Needs the `ml` group
@@ -22,7 +25,12 @@ import time
 from dotenv import load_dotenv
 
 from kaprag.corpus import DEFAULT_MANIFEST, REPO_ROOT, read_manifest
-from kaprag.index.build import MissingInput, chunk_document, chunk_stats
+from kaprag.index.build import (
+    MissingInput,
+    chunk_document,
+    chunk_stats,
+    load_document_access,
+)
 from kaprag.index.embed import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_MAX_SEQ_LENGTH,
@@ -109,13 +117,16 @@ def main() -> int:
                 try:
                     t0 = time.monotonic()
                     chunks = chunk_document(args.variant, doc, token_spans)
+                    access = load_document_access(doc)
                     t1 = time.monotonic()
                     log.info(
                         "%s: chunked in %.1f s: %s", prefix, t1 - t0, chunk_stats(chunks).describe()
                     )
                     vectors = embedder.embed_documents([c.text for c in chunks])
                     t2 = time.monotonic()
-                    written = replace_document(conn, args.variant, doc, chunks, vectors)
+                    written = replace_document(
+                        conn, args.variant, doc, chunks, vectors, access=access
+                    )
                     t3 = time.monotonic()
                 except MissingInput as e:
                     failures[doc.doc_id] = f"skipped, missing input: {e}"

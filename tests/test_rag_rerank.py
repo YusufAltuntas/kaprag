@@ -152,7 +152,7 @@ def test_pipeline_returns_and_generates_from_the_reranked_order(tmp_dir):
 def test_open_retriever_wraps_any_mode_when_rerank_is_configured(monkeypatch, mode):
     opened, scorers = [], []
 
-    def fake_opener(config):
+    def fake_opener(config, schema):
         opened.append(config.retrieval.mode)
         return FakeRetriever()
 
@@ -175,7 +175,7 @@ def test_open_retriever_wraps_any_mode_when_rerank_is_configured(monkeypatch, mo
 
 def test_open_retriever_without_rerank_returns_the_first_stage(monkeypatch):
     first = FakeRetriever()
-    monkeypatch.setitem(retriever_module.RETRIEVAL_MODES, "dense", lambda config: first)
+    monkeypatch.setitem(retriever_module.RETRIEVAL_MODES, "dense", lambda config, schema: first)
     assert open_retriever(parse_rag_config({"index": "fixed"})) is first
 
 
@@ -185,7 +185,7 @@ def test_open_retriever_closes_the_first_stage_if_the_reranker_fails(monkeypatch
     def broken(*args, **kwargs):
         raise RuntimeError("CUDA is not available")
 
-    monkeypatch.setitem(retriever_module.RETRIEVAL_MODES, "dense", lambda config: first)
+    monkeypatch.setitem(retriever_module.RETRIEVAL_MODES, "dense", lambda config, schema: first)
     monkeypatch.setattr(rerank_module, "CrossEncoderScorer", broken)
     with pytest.raises(RuntimeError, match="CUDA"):
         open_retriever(parse_rag_config({"index": "fixed", "rerank": {}}))

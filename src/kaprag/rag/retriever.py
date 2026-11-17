@@ -122,39 +122,46 @@ def fuse_arms(arms: dict[str, Sequence[SearchHit]], rrf_k: int) -> list[RankedCh
     ]
 
 
-def _index_resources(config: RagConfig) -> tuple[Connection, str, Any]:
-    """Connect to `DATABASE_URL` and load the embedder (needs the `ml` group)."""
+def _index_resources(config: RagConfig, schema: str | None) -> tuple[Connection, str, Any]:
+    """Connect to `DATABASE_URL` (the chunk tables of `schema`, default the
+    search_path's) and load the embedder (needs the `ml` group)."""
     from kaprag.index.embed import Embedder
     from kaprag.index.store import connect
 
-    embedder = Embedder(config.embedding.model, device=config.embedding.device)
-    conn = connect()
+    conn = connect(schema=schema)  # first: a wrong schema fails before the model loads
+    try:
+        embedder = Embedder(config.embedding.model, device=config.embedding.device)
+    except BaseException:
+        conn.close()
+        raise
     conn.autocommit = True
     return conn, config.index, embedder
 
 
-def _open_dense(config: RagConfig) -> DenseRetriever:
-    return DenseRetriever(*_index_resources(config))
+def _open_dense(config: RagConfig, schema: str | None = None) -> DenseRetriever:
+    return DenseRetriever(*_index_resources(config, schema))
 
 
-def _open_hybrid(config: RagConfig) -> HybridRetriever:
+def _open_hybrid(config: RagConfig, schema: str | None = None) -> HybridRetriever:
     return HybridRetriever(
-        *_index_resources(config),
+        *_index_resources(config, schema),
         candidates_per_arm=config.retrieval.candidates_per_arm,
         rrf_k=config.retrieval.rrf_k,
     )
 
 
-RETRIEVAL_MODES: dict[str, Callable[[RagConfig], Retriever]] = {
+# opener(config, schema): schema None = the default search_path (the real index)
+RETRIEVAL_MODES: dict[str, Callable[[RagConfig, str | None], Retriever]] = {
     "dense": _open_dense,
     "hybrid": _open_hybrid,
 }
 
 
-def open_retriever(config: RagConfig) -> Retriever:
+def open_retriever(config: RagConfig, *, schema: str | None = None) -> Retriever:
     """The configured first-stage mode, wrapped in the reranking stage when the config
-    has a `rerank` block. Models load here, once per run."""
-    retriever = RETRIEVAL_MODES[config.retrieval.mode](config)
+    has a `rerank` block. Models load here, once per run. `schema` selects another copy
+    of the chunk tables (`kaprag.index.store.connect`), e.g. a scratch schema."""
+    retriever = RETRIEVAL_MODES[config.retrieval.mode](config, schema)
     if config.rerank is None:
         return retriever
     from kaprag.rag import rerank
