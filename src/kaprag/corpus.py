@@ -14,6 +14,14 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = REPO_ROOT / "data" / "manifest.csv"
 DEFAULT_RAW_DIR = REPO_ROOT / "data" / "raw"
 
+# Display names of the corpus banks, by manifest `bank` id.
+BANK_NAMES: dict[str, str] = {
+    "garanti": "Garanti BBVA",
+    "akbank": "Akbank",
+    "isbank": "İş Bankası",
+    "yapikredi": "Yapı Kredi",
+}
+
 MANIFEST_COLUMNS = ("doc_id", "bank", "year", "url", "sha256", "pages", "source_note")
 
 
@@ -81,9 +89,7 @@ def write_manifest(docs: list[Document], path: Path = DEFAULT_MANIFEST) -> None:
         writer.writerow(MANIFEST_COLUMNS)
         for d in docs:
             pages = "" if d.pages is None else d.pages
-            writer.writerow(
-                [d.doc_id, d.bank, d.year, d.url, d.sha256 or "", pages, d.source_note]
-            )
+            writer.writerow([d.doc_id, d.bank, d.year, d.url, d.sha256 or "", pages, d.source_note])
     tmp.replace(path)
 
 

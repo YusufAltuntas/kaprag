@@ -16,6 +16,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from kaprag.corpus import BANK_NAMES
 from kaprag.eval.schema import (
     Bank,
     Basis,
@@ -30,12 +31,6 @@ from kaprag.eval.schema import (
 
 Source = Literal["page", "probe", "derived", "abstain", "ambiguous"]
 
-BANK_NAMES: dict[str, str] = {
-    "garanti": "Garanti BBVA",
-    "akbank": "Akbank",
-    "isbank": "İş Bankası",
-    "yapikredi": "Yapı Kredi",
-}
 # Genitive forms ("Akbank'ın"), for questions composed in code.
 BANK_GENITIVE: dict[str, str] = {
     "garanti": "Garanti BBVA'nın",

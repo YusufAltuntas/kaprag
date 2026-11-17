@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from kaprag.corpus import BANK_NAMES
 from kaprag.eval.pipeline import RetrievedItem
-from kaprag.gold.draft import BANK_NAMES
 
 
 def _bank_and_year(doc: str) -> tuple[str, str]:
