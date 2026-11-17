@@ -1,4 +1,4 @@
-"""`scripts/run_eval.py` command line: test-split guard, end-to-end fake run, errors."""
+"""`scripts/run_eval.py` command line: test-split guards, end-to-end fake run, errors."""
 
 import json
 from pathlib import Path
@@ -46,6 +46,21 @@ def test_pilot_with_limit(tmp_dir):
     assert main(args(tmp_dir, "--split", "pilot", "--limit", "3")) == 0
     [run_dir] = (tmp_dir / "runs").iterdir()
     assert len((run_dir / "results.jsonl").read_text(encoding="utf-8").splitlines()) == 3
+
+
+def test_pilot_refused_when_it_selects_test_split_questions(tmp_dir, capsys):
+    # the fixture's pilot set includes f011, a `split: test` question
+    assert main(args(tmp_dir, "--split", "pilot")) == 2
+    err = capsys.readouterr().err
+    assert "f011" in err and "--confirm-test" in err
+    assert not (tmp_dir / "runs").exists()
+
+
+def test_pilot_with_test_split_questions_runs_with_confirmation(tmp_dir):
+    assert main(args(tmp_dir, "--split", "pilot", "--confirm-test")) == 0
+    [run_dir] = (tmp_dir / "runs").iterdir()
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    assert summary["overall"]["n"] == 7
 
 
 def test_missing_question_file_and_config(tmp_dir, capsys):
