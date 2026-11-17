@@ -106,6 +106,16 @@ def git_commit() -> str | None:
 
 
 @dataclass
+class Scored:
+    """The scoring of one answer against one gold row (judge verdict + all metrics)."""
+
+    judge_task: str | None
+    judge_verdict: dict[str, Any] | None
+    judge_error: str | None
+    metrics: dict[str, Any]
+
+
+@dataclass
 class _QuestionRun:
     question: Question
     output: PipelineOutput | None
@@ -114,10 +124,7 @@ class _QuestionRun:
     started_at: str
     ended_at: str
     latency_ms: float
-    judge_task: str | None
-    judge_verdict: dict[str, Any] | None
-    judge_error: str | None
-    metrics: dict[str, Any]
+    scored: Scored
 
 
 @dataclass
@@ -199,16 +206,7 @@ async def run_eval_async(
             encoding="utf-8",
         )
 
-        judge_holder: list[Judge] = []
-
-        def get_judge() -> Judge:
-            if not judge_holder:
-                if config.judge.kind == "fake":
-                    judge_holder.append(FakeJudge())
-                else:
-                    judge_holder.append(LLMJudge(llm(), config.judge.model))
-            return judge_holder[0]
-
+        get_judge = make_judge_getter(config, llm)
         semaphore = asyncio.Semaphore(config.concurrency)
         wall_start = time.perf_counter()
         runs = await asyncio.gather(
@@ -245,14 +243,7 @@ async def run_eval_async(
             "pipeline": config.pipeline.model_dump(mode="json"),
         },
         **summarize(results),
-        "judge": {
-            "kind": config.judge.kind,
-            "model": config.judge.model if config.judge.kind == "llm" else None,
-            "judged_questions": sum(r["judge_task"] is not None for r in results),
-            "llm_calls": sum(r["judge_llm_calls"] for r in results),
-            "errors": sum(r["judge_error"] is not None for r in results),
-            "cost_usd_total": round(float(sum(r["judge_cost_usd"] for r in results)), 6),
-        },
+        "judge": judge_summary(config, results),
         "unattributed_llm_calls": {
             "n": len(unattributed),
             "cost_usd_total": round(float(sum(r.get("cost_usd") or 0 for r in unattributed)), 6),
@@ -264,6 +255,33 @@ async def run_eval_async(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     return RunResult(run_dir=run_dir, summary=summary)
+
+
+def judge_summary(config: EvalConfig, results: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """The `judge` block of `summary.json`."""
+    return {
+        "kind": config.judge.kind,
+        "model": config.judge.model if config.judge.kind == "llm" else None,
+        "judged_questions": sum(r["judge_task"] is not None for r in results),
+        "llm_calls": sum(r["judge_llm_calls"] for r in results),
+        "errors": sum(r["judge_error"] is not None for r in results),
+        "cost_usd_total": round(float(sum(r["judge_cost_usd"] for r in results)), 6),
+    }
+
+
+def make_judge_getter(config: EvalConfig, llm: Callable[[], LLMClient]) -> Callable[[], Judge]:
+    """A lazy judge for the config: the LLM client is only created on the first judge call."""
+    holder: list[Judge] = []
+
+    def get_judge() -> Judge:
+        if not holder:
+            if config.judge.kind == "fake":
+                holder.append(FakeJudge())
+            else:
+                holder.append(LLMJudge(llm(), config.judge.model))
+        return holder[0]
+
+    return get_judge
 
 
 def run_eval(config: EvalConfig, **kwargs: Any) -> RunResult:
@@ -292,26 +310,8 @@ async def _run_question(
         latency_ms = (time.perf_counter() - start) * 1000
         ended_at = _now()
 
-        task = needs_judge(question, output)
-        verdict = judge_error = None
-        text_correct = coverage = None
-        if task is not None:
-            judge_tags = {"run": run_id, "qid": question.id}
-            try:
-                judge = get_judge()
-                if task == "text":
-                    result = await judge.judge_text(question, output.answer, tags=judge_tags)
-                    text_correct = result.correct
-                else:
-                    result = await judge.judge_key_points(question, output.answer, tags=judge_tags)
-                    coverage = key_point_coverage(question, result)
-                verdict = result.model_dump(mode="json")
-            except Exception as exc:  # judge failure: metric stays null, question stays ok
-                judge_error = f"{type(exc).__name__}: {exc}"
-                text_correct = coverage = None
-
-        metrics = score_question(
-            question, output, text_correct=text_correct, key_point_coverage=coverage
+        scored = await score_output(
+            question, output, get_judge, tags={"run": run_id, "qid": question.id}
         )
     return _QuestionRun(
         question=question,
@@ -321,14 +321,45 @@ async def _run_question(
         started_at=started_at,
         ended_at=ended_at,
         latency_ms=latency_ms,
-        judge_task=task,
-        judge_verdict=verdict,
-        judge_error=judge_error,
-        metrics=metrics,
+        scored=scored,
     )
 
 
-def _is_judge(row: dict[str, Any]) -> bool:
+async def score_output(
+    question: Question,
+    output: PipelineOutput | None,
+    get_judge: Callable[[], Judge],
+    *,
+    tags: dict[str, Any],
+) -> Scored:
+    """Judge (when the question needs it) and score one pipeline output.
+
+    Shared by the runner and by re-scoring stored outputs (`kaprag.eval.rescore`).
+    """
+    task = needs_judge(question, output)
+    verdict = judge_error = None
+    text_correct = coverage = None
+    if task is not None:
+        try:
+            judge = get_judge()
+            if task == "text":
+                result = await judge.judge_text(question, output.answer, tags=dict(tags))
+                text_correct = result.correct
+            else:
+                result = await judge.judge_key_points(question, output.answer, tags=dict(tags))
+                coverage = key_point_coverage(question, result)
+            verdict = result.model_dump(mode="json")
+        except Exception as exc:  # judge failure: metric stays null, question stays ok
+            judge_error = f"{type(exc).__name__}: {exc}"
+            text_correct = coverage = None
+
+    metrics = score_question(
+        question, output, text_correct=text_correct, key_point_coverage=coverage
+    )
+    return Scored(judge_task=task, judge_verdict=verdict, judge_error=judge_error, metrics=metrics)
+
+
+def is_judge_call(row: dict[str, Any]) -> bool:
     return row.get("tags", {}).get("role") == "judge"
 
 
@@ -349,6 +380,18 @@ def _retrieved_summary(output: PipelineOutput | None) -> list[dict[str, Any]]:
     ]
 
 
+# Per-question operational fields of a result row, measured from the pipeline's run.
+OPERATIONAL_FIELDS = (
+    "latency_ms",
+    "latency_eligible",
+    "cost_usd",
+    "input_tokens",
+    "output_tokens",
+    "llm_calls",
+    "cached_llm_calls",
+)
+
+
 def _result_row(run: _QuestionRun, calls: list[dict[str, Any]]) -> dict[str, Any]:
     """One `results.jsonl` row.
 
@@ -356,9 +399,40 @@ def _result_row(run: _QuestionRun, calls: list[dict[str, Any]]) -> dict[str, Any
     the judge's. `latency_ms` is the pipeline's wall time for this question;
     `latency_eligible` is false when any pipeline LLM call was a cache hit.
     """
-    q = run.question
-    pipeline_calls = [c for c in calls if not _is_judge(c)]
-    judge_calls = [c for c in calls if _is_judge(c)]
+    pipeline_calls = [c for c in calls if not is_judge_call(c)]
+    operational = {
+        "latency_ms": round(run.latency_ms, 1),
+        "latency_eligible": run.status == "ok" and not any(c.get("cached") for c in pipeline_calls),
+        "cost_usd": round(float(sum(c.get("cost_usd") or 0 for c in pipeline_calls)), 8),
+        "input_tokens": sum(_prompt_tokens(c) for c in pipeline_calls),
+        "output_tokens": sum(c.get("output_tokens") or 0 for c in pipeline_calls),
+        "llm_calls": len(pipeline_calls),
+        "cached_llm_calls": sum(bool(c.get("cached")) for c in pipeline_calls),
+    }
+    return result_row(
+        run.question,
+        status=run.status,
+        error=run.error,
+        answer=None if run.output is None else run.output.answer.model_dump(mode="json"),
+        retrieved=_retrieved_summary(run.output),
+        scored=run.scored,
+        operational=operational,
+        judge_calls=[c for c in calls if is_judge_call(c)],
+    )
+
+
+def result_row(
+    q: Question,
+    *,
+    status: str,
+    error: str | None,
+    answer: dict[str, Any] | None,
+    retrieved: list[dict[str, Any]],
+    scored: Scored,
+    operational: dict[str, Any],
+    judge_calls: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Assemble a `results.jsonl` row; `operational` holds the `OPERATIONAL_FIELDS`."""
     return {
         "id": q.id,
         "type": q.type,
@@ -367,21 +441,15 @@ def _result_row(run: _QuestionRun, calls: list[dict[str, Any]]) -> dict[str, Any
         "verified": q.verified,
         "audit": q.audit.status if q.audit is not None else None,
         "expected_behavior": q.expected_behavior,
-        "status": run.status,
-        "error": run.error,
-        "answer": None if run.output is None else run.output.answer.model_dump(mode="json"),
-        "retrieved": _retrieved_summary(run.output),
-        "metrics": run.metrics,
-        "judge_task": run.judge_task,
-        "judge_verdict": run.judge_verdict,
-        "judge_error": run.judge_error,
-        "latency_ms": round(run.latency_ms, 1),
-        "latency_eligible": run.status == "ok" and not any(c.get("cached") for c in pipeline_calls),
-        "cost_usd": round(float(sum(c.get("cost_usd") or 0 for c in pipeline_calls)), 8),
-        "input_tokens": sum(_prompt_tokens(c) for c in pipeline_calls),
-        "output_tokens": sum(c.get("output_tokens") or 0 for c in pipeline_calls),
-        "llm_calls": len(pipeline_calls),
-        "cached_llm_calls": sum(bool(c.get("cached")) for c in pipeline_calls),
+        "status": status,
+        "error": error,
+        "answer": answer,
+        "retrieved": retrieved,
+        "metrics": scored.metrics,
+        "judge_task": scored.judge_task,
+        "judge_verdict": scored.judge_verdict,
+        "judge_error": scored.judge_error,
+        **{k: operational[k] for k in OPERATIONAL_FIELDS},
         "judge_cost_usd": round(float(sum(c.get("cost_usd") or 0 for c in judge_calls)), 8),
         "judge_llm_calls": len(judge_calls),
     }
@@ -414,8 +482,12 @@ def _trace_record(run: _QuestionRun, calls: list[dict[str, Any]], run_id: str) -
         "retrieval": _retrieved_summary(run.output),
         "answer": None if run.output is None else run.output.answer.model_dump(mode="json"),
         "pipeline_debug": None if run.output is None else run.output.debug,
-        "llm_calls": [{"role": "judge" if _is_judge(c) else "pipeline", **c} for c in calls],
-        "judge": {"task": run.judge_task, "verdict": run.judge_verdict, "error": run.judge_error},
+        "llm_calls": [{"role": "judge" if is_judge_call(c) else "pipeline", **c} for c in calls],
+        "judge": {
+            "task": run.scored.judge_task,
+            "verdict": run.scored.judge_verdict,
+            "error": run.scored.judge_error,
+        },
     }
 
 
