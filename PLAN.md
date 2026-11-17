@@ -150,6 +150,7 @@ Sabah raporunu doldur.
 | 2026-11-17 | `claude -p "merhaba"` başarısız: "OAuth session expired and could not be refreshed". CLI güncellendi (2.1.318), sorun sürüyor. `claude-agent-sdk` aynı girişi kullandığı için T1 ve tüm LLM adımları buna bağlı. | **Çözüldü (2026-11-17):** kullanıcı yeniden giriş yaptı; Haiku ile `claude -p` doğrulandı. |
 | 2026-11-17 | Uyku ayarı kontrol edilmedi. | Kullanıcı kontrol etmeli. |
 | 2026-11-17 | Repo yolundaki `ş` yüzünden paket yalnızca `dev` grubundaki `editables` ile import edilebiliyor; `uv sync --no-dev` (ör. ileride bir prod/Docker kurulumu) paketi import edilemez bırakır. uv'nin yönetilen Python 3.13'ü bu kullanıcı yolunda kurulamadı. | Engel değil, risk. Kalıcı çözüm kullanıcının kararı: repoyu ASCII bir yola taşımak ya da Python 3.13+. CI ve yerel geliştirme etkilenmiyor. |
+| 2026-11-17 | T14: Langfuse self-host yığını ayağa kaldırılmadı; exporter gerçek bir Langfuse sunucusuna karşı hiç çalıştırılmadı (yalnızca birim testleri, sahte istemci/exporter ve `--dry-run`). | Orkestratör bilerek yapmadı: yığın `.env`'e üretilmiş sırlar yazılmasını, bir yönetici kullanıcı ve API anahtarı sağlanmasını ve birkaç GB imaj indirilmesini gerektiriyor (Docker'a ~7,6 GB RAM ayrılmış). **Kullanıcı yapacak:** `.env`'deki boş `LANGFUSE_*` değerlerini doldur (`.env.example`'daki açıklamalara göre) → `docker compose --profile observability up -d` (arayüz http://localhost:3300; anahtarlar ilk açılışta `.env`'den oluşur, arayüz girişi gerekmez) → `uv sync --group ml --group app --group observability` → `uv run python scripts/export_langfuse.py --run runs/2026-11-17-rerank-dev` → trace sayısının 84 olduğunu kontrol et. Aynı run 15–30 s içinde iki kez aktarılırsa çift kayıt oluşabilir. |
 | 2026-11-17 | Abonelik penceresi (5 saatlik / 7 günlük) dolarsa `claude_code` çağrıları 2 s + 4 s beklemeyle 3 denemeden sonra `error` olur; pencerenin sıfırlanmasını bekleme istemcide yok. | Engel değil, risk. Başarısız çağrılar cache'lenmediği için run yeniden çalıştırılınca yalnızca hatalı sorular kota harcar; orkestratör run'lardaki `error` sayısına bakıp gerekirse pencere sıfırlanınca tekrar koşar. |
 
 ## Sabah raporu
@@ -158,9 +159,9 @@ _Ara durum — son güncelleme 2026-11-17 ~23:15. Oturum sürüyor; iş bitince 
 
 **Biten görevler (kabul ölçütleri orkestratör tarafından çalıştırıldı):** T0–T8 (P0'ın tamamı).
 
-T9 (a–d), T10 ve T11 de bitti. Test split'i baseline ve router ile bir kez çalıştırıldı.
+T9–T14 de bitti: planın 15 görevinin hepsi (T0–T14) işaretli. Test split'i baseline ve router ile bir kez çalıştırıldı.
 
-**Süren / kalan:** T13 (API ve sohbet demosu) sürüyor; T14'ün kodu yazıldı, review'dan iki düzeltme çıktı; T12'nin README'si yazılacak; ardından final whole-branch review.
+**Süren / kalan:** final whole-branch review.
 
 **Taslak sonuçlar — doğrulanmamış gold set (hiçbir soru `verified` değil; README/CV'ye girmez):**
 
@@ -325,7 +326,7 @@ Her adım bir öncekinin üstüne eklenir ve dev'de ayrı bir run'dır:
 - ~15 İngilizce soru (Türkçe dokümanlar üzerinde cross-lingual retrieval).
 
 ### Task T14 — Langfuse'a trace aktarımı (P2)
-- [ ] Tamamlandı
+- [x] Tamamlandı
 - `scripts/export_langfuse.py --run runs/<klasör>`: run'ın `traces.jsonl`'ını Langfuse'a aktarır. Soru başına bir trace; altında retrieval adımı (getirilen chunk'lar, skorlar) ve her LLM çağrısı bir generation (model, token, gecikme, cache isabeti, API-eşdeğeri maliyet). Run konfigürasyonu trace metadata'sına, metrik sonuçları (sayısal doğruluk, judge kararı, recall) score olarak. Tekrar çalıştırmak çift kayıt üretmez (deterministik trace ID).
 - Langfuse Python SDK'nın güncel sürümünü ve API'sini dokümantasyondan doğrula; tahmin etme. SDK yalnızca bu script'te kullanılır; pipeline ve `kaprag.llm` Langfuse'a bağımlı olmaz.
 - Self-host: Langfuse'un resmi docker compose'u `docker-compose.yml`'de ayrı bir profil (`observability`) olarak; varsayılan `docker compose up` onu başlatmaz. Bağlantı `.env`'den (`LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`); `.env.example`'a boş değerlerle eklenir.
