@@ -19,8 +19,10 @@ queries do not touch it.
 
 Dense: cosine distance via `<=>` on normalised vectors, score = 1 - distance (cosine
 similarity). `hnsw.ef_search` is raised to k for the query when k > 40 so the index
-can return k rows (HNSW yields at most ef_search rows); the setting is local to the
-query's transaction, so it works on autocommit connections and never leaks.
+can return k rows (HNSW yields at most ef_search rows). Both `hnsw.*` settings are
+transaction-local (`set_config(..., true)`): on an autocommit connection they end with
+the query's own transaction and do not leak to later statements, but inside a caller's
+open transaction they persist until that transaction ends.
 
 Full-text: a plain AND of all question terms (`plainto_tsquery`) matches almost no
 chunk for a natural-language question, so the query is the OR of the question's

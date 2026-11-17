@@ -8,11 +8,12 @@ score (`first_stage_rank`, `first_stage_score`) next to the first stage's own fi
 
 The model (`BAAI/bge-reranker-v2-m3` by default; needs the `ml` group, imported
 lazily) loads once per run in fp16 on CUDA, with no silent CPU fallback, and scores in
-small batches with a capped pair length. The cap (1024 tokens) fits a fixed chunk (at
-most 500 tokens of the bge-m3 tokenizer, which the reranker shares) plus the question
-and special tokens without truncation. Like the embedder, one model is not safe for
-concurrent use, so scoring holds a lock; the pipeline runs retrieval, reranking
-included, in a worker thread, off the event loop.
+small batches with a capped pair length. The cap (1024 tokens) fits a fixed chunk plus
+the question and special tokens without truncation: the longest pair measured (bge-m3
+tokenizer, which the reranker shares; 30 dev questions x 40 candidates) was 547 tokens.
+Like the embedder, one model is not safe for concurrent use, so scoring holds a lock;
+the pipeline runs retrieval, reranking included, in a worker thread, off the event
+loop.
 """
 
 from __future__ import annotations
