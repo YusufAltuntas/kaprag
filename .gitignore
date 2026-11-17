@@ -1,0 +1,38 @@
+# Sırlar
+.env
+.env.*
+!.env.example
+.claude/settings.local.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+.ipynb_checkpoints/
+
+# Veri ve çıktılar — repoya indirme script'i ve manifest girer, dosyaların kendisi girmez
+data/raw/
+data/parsed/
+runs/
+*.pdf
+
+# Model / checkpoint
+models/
+*.safetensors
+*.bin
+*.pt
+*.onnx
+
+# Postgres volume (yerel)
+pgdata/
+
+# macOS
+.DS_Store
+
+# LLM yanıt cache
+.cache/
