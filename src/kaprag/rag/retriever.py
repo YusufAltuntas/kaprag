@@ -1,6 +1,8 @@
 """Retrieval modes and their construction from the config.
 
-A `Retriever` returns the top-k chunks for a question, best first, as `RankedChunk`s:
+A `Retriever` returns the top-k chunks for a question, best first, as `RankedChunk`s,
+optionally restricted by a `where` filter (`kaprag.retrieval.SqlFilter`, applied in
+SQL before ranking in every arm; see `kaprag.rag.query_filter`):
 the harness's `RetrievedItem` (text included) plus a per-item `trace` of how the
 stages ranked it (e.g. `{"dense_rank": 3, "fts_rank": None}`), which the pipeline
 writes to its debug output. It is synchronous and may block (GPU embedding, a database
@@ -14,8 +16,8 @@ query); `kaprag.rag.pipeline` runs it in a worker thread.
   by one arm only is kept; the item's score is the fused score.
 
 `open_retriever` wraps any mode in the cross-encoder reranking stage
-(`kaprag.rag.rerank`) when the config has a `rerank` block; a SQL filter would
-parameterise a retriever here the same way. Generation never changes for them.
+(`kaprag.rag.rerank`) when the config has a `rerank` block; it passes the filter to
+its first stage. Generation never changes for them.
 
 Concurrency: a retriever owns one embedder and one autocommit connection, neither
 safe for concurrent use, so `retrieve` holds a lock: retrievals are serialised (each
@@ -31,7 +33,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
 from kaprag.eval.pipeline import RetrievedItem
-from kaprag.retrieval import SearchHit, dense_search, fts_search, rrf_fuse
+from kaprag.retrieval import SearchHit, SqlFilter, dense_search, fts_search, rrf_fuse
 
 if TYPE_CHECKING:
     from psycopg import Connection
@@ -46,7 +48,9 @@ class RankedChunk:
 
 
 class Retriever(Protocol):
-    def retrieve(self, question: str, k: int) -> list[RankedChunk]: ...
+    def retrieve(
+        self, question: str, k: int, where: SqlFilter | None = None
+    ) -> list[RankedChunk]: ...
 
     def close(self) -> None: ...
 
@@ -68,10 +72,10 @@ class _IndexRetriever:
 class DenseRetriever(_IndexRetriever):
     """Dense (pgvector cosine) search over one chunk table."""
 
-    def retrieve(self, question: str, k: int) -> list[RankedChunk]:
+    def retrieve(self, question: str, k: int, where: SqlFilter | None = None) -> list[RankedChunk]:
         with self._lock:
             vector = self.embedder.embed_query(question)
-            hits = dense_search(self.conn, self.variant, vector, k=k)
+            hits = dense_search(self.conn, self.variant, vector, k=k, where=where)
         return [RankedChunk(hit.to_retrieved_item()) for hit in hits]
 
 
@@ -91,12 +95,13 @@ class HybridRetriever(_IndexRetriever):
         self.candidates_per_arm = candidates_per_arm
         self.rrf_k = rrf_k
 
-    def retrieve(self, question: str, k: int) -> list[RankedChunk]:
+    def retrieve(self, question: str, k: int, where: SqlFilter | None = None) -> list[RankedChunk]:
+        n = self.candidates_per_arm
         with self._lock:
             vector = self.embedder.embed_query(question)
             arms = {
-                "dense": dense_search(self.conn, self.variant, vector, k=self.candidates_per_arm),
-                "fts": fts_search(self.conn, self.variant, question, k=self.candidates_per_arm),
+                "dense": dense_search(self.conn, self.variant, vector, k=n, where=where),
+                "fts": fts_search(self.conn, self.variant, question, k=n, where=where),
             }
         return fuse_arms(arms, self.rrf_k)[:k]
 

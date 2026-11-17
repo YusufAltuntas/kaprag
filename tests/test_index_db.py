@@ -1,13 +1,15 @@
 import os
+import random
 import uuid
 
 import pytest
+from pgvector import Vector
 from psycopg import sql
 
 from kaprag.chunking.base import Chunk
 from kaprag.corpus import Document
 from kaprag.index.store import EMBEDDING_DIM, connect, ensure_schema, replace_document, row_counts
-from kaprag.retrieval import DEFAULT_HNSW_EF_SEARCH, dense_search, fts_search
+from kaprag.retrieval import DEFAULT_HNSW_EF_SEARCH, SqlFilter, dense_search, fts_search
 
 pytestmark = pytest.mark.db
 
@@ -200,3 +202,67 @@ def test_dense_search_returns_more_than_the_default_ef_search_on_autocommit(conn
     hits = dense_search(conn, "fixed", one_hot(0), k=n - 5)
     assert len(hits) == n - 5
     assert conn.execute("SHOW hnsw.ef_search").fetchone()[0] == str(DEFAULT_HNSW_EF_SEARCH)
+
+
+def _filter_corpus(conn, rows_per_doc: int):
+    """12 documents (4 banks x 3 years) of `rows_per_doc` chunks with seeded random
+    unit vectors, so a document's chunks are scattered across the HNSW graph."""
+    rng = random.Random(7)
+    for bank in ("garanti", "akbank", "isbank", "yapikredi"):
+        for year in (2023, 2024, 2025):
+            d = doc(f"{bank}-{year}")
+            chunks = [chunk(d.doc_id, i, f"net kâr {bank} {year} {i}") for i in range(rows_per_doc)]
+            replace_document(conn, "structure", d, chunks, [random_unit(rng) for _ in chunks])
+    conn.commit()
+    conn.autocommit = True
+    conn.execute("SET enable_seqscan = off")  # force the index paths on this small table
+
+
+def random_unit(rng: random.Random) -> list[float]:
+    v = [rng.gauss(0.0, 1.0) for _ in range(EMBEDDING_DIM)]
+    norm = sum(x * x for x in v) ** 0.5
+    return [x / norm for x in v]
+
+
+def test_filtered_dense_search_returns_k_matching_rows_through_the_hnsw_index(conn):
+    # One document in twelve passes the filter; the HNSW scan alone yields only
+    # ef_search (40) candidates, about 3 of them matching, so without pgvector's
+    # iterative scan the query would return far fewer than k rows.
+    _filter_corpus(conn, rows_per_doc=40)
+    where = SqlFilter().any_of("bank", ["akbank"]).any_of("year", [2024])
+    query = random_unit(random.Random(99))
+    plan = " ".join(
+        row[0]
+        for row in conn.execute(
+            "EXPLAIN SELECT chunk_id FROM chunks_structure"
+            " WHERE bank = ANY(%s) AND year = ANY(%s)"
+            " ORDER BY embedding <=> %s, chunk_id LIMIT 30",
+            (["akbank"], [2024], Vector(query)),
+        ).fetchall()
+    )
+    assert "chunks_structure_embedding_hnsw" in plan
+
+    hits = dense_search(conn, "structure", query, k=30, where=where)
+    assert len(hits) == 30
+    assert {h.doc_id for h in hits} == {"akbank-2024"}
+    assert [h.score for h in hits] == sorted((h.score for h in hits), reverse=True)
+    # transaction-local: the session is unchanged afterwards
+    assert conn.execute("SHOW hnsw.iterative_scan").fetchone()[0] == "off"
+
+    unfiltered = dense_search(conn, "structure", query, k=30)
+    assert len(unfiltered) == 30 and len({h.doc_id for h in unfiltered}) > 1
+
+
+def test_filtered_fts_search_returns_k_matching_rows(conn):
+    _filter_corpus(conn, rows_per_doc=40)
+    where = SqlFilter().any_of("bank", ["isbank", "garanti"]).any_of("year", [2025])
+    hits = fts_search(conn, "structure", "net kâr", k=30, where=where)
+    assert len(hits) == 30
+    assert {h.doc_id for h in hits} <= {"isbank-2025", "garanti-2025"}
+
+
+def test_filter_values_are_bound_not_interpolated(conn):
+    _filter_corpus(conn, rows_per_doc=2)
+    where = SqlFilter().any_of("bank", ["akbank' OR '1'='1"])
+    assert dense_search(conn, "structure", one_hot(0), k=5, where=where) == []
+    assert fts_search(conn, "structure", "net kâr", k=5, where=where) == []

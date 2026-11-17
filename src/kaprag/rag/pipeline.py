@@ -3,6 +3,11 @@
 Registered in the harness as `rag`; a config selects it with `factory: rag` and its
 params (see `kaprag.rag.config`). Per question:
 
+0. With a `query_filter` block (enabled): one parse call tagged
+   `{**tags, "step": "parse_query"}` turns the question's banks/years into a SQL filter
+   for retrieval (`kaprag.rag.query_filter`); a failed parse means no filter, never an
+   error. `debug["query_filter"]` records the parse, the applied filter, any failure
+   and the number of chunks retrieved under it (`retrieved`).
 1. Retrieve the top `retrieve_k` chunks (in a worker thread; the retriever serialises
    its own GPU/DB work). This ranked list is what the harness scores for retrieval.
    When the retrieval stages record per-item ranks (hybrid arms, reranking), they go
@@ -25,6 +30,7 @@ from kaprag.rag.config import RagConfig, parse_rag_config
 from kaprag.rag.context import format_context
 from kaprag.rag.generate import generate
 from kaprag.rag.postprocess import build_answer
+from kaprag.rag.query_filter import parse_query_filter
 from kaprag.rag.retriever import Retriever, open_retriever
 
 
@@ -37,7 +43,16 @@ class RagPipeline:
         self.llm = llm
 
     async def run(self, question: str, *, tags: dict[str, Any]) -> PipelineOutput:
-        ranked = await asyncio.to_thread(self.retriever.retrieve, question, self.config.retrieve_k)
+        where, filter_debug = None, None
+        qf = self.config.query_filter
+        if qf is not None and qf.enabled:
+            outcome = await parse_query_filter(self.llm(), question, model=qf.model, tags=tags)
+            where, filter_debug = outcome.where, outcome.debug
+        ranked = await asyncio.to_thread(
+            self.retriever.retrieve, question, self.config.retrieve_k, where=where
+        )
+        if filter_debug is not None:
+            filter_debug = {**filter_debug, "retrieved": len(ranked)}
         retrieved = [r.item for r in ranked]
         sources = retrieved[: self.config.context_k]
         generated = await generate(
@@ -48,7 +63,9 @@ class RagPipeline:
             tags=tags,
         )
         answer, debug = build_answer(generated, sources)
-        retrieval_debug = {}
+        retrieval_debug: dict[str, Any] = {}
+        if filter_debug is not None:
+            retrieval_debug["query_filter"] = filter_debug
         if any(r.trace for r in ranked):
             retrieval_debug["retrieval_trace"] = [
                 {"chunk_id": r.item.chunk_id, **r.trace} for r in ranked

@@ -22,6 +22,7 @@ from collections.abc import Sequence
 from typing import Any, Protocol
 
 from kaprag.rag.retriever import RankedChunk, Retriever
+from kaprag.retrieval import SqlFilter
 
 DEFAULT_RERANK_MODEL = "BAAI/bge-reranker-v2-m3"
 DEFAULT_CANDIDATES = 40
@@ -109,8 +110,8 @@ class RerankingRetriever:
         self.scorer = scorer
         self.candidates = candidates
 
-    def retrieve(self, question: str, k: int) -> list[RankedChunk]:
-        first = self.first_stage.retrieve(question, self.candidates)
+    def retrieve(self, question: str, k: int, where: SqlFilter | None = None) -> list[RankedChunk]:
+        first = self.first_stage.retrieve(question, self.candidates, where=where)
         return rerank(question, first, self.scorer, self.candidates)[:k]
 
     def close(self) -> None:

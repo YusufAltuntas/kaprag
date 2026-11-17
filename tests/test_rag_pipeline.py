@@ -37,11 +37,13 @@ class FakeRetriever:
         self.items = items(n)
         self.traces = traces or [{} for _ in self.items]
         self.calls = []
+        self.wheres = []
         self.closed = False
         self.thread = None
 
-    def retrieve(self, question, k):
+    def retrieve(self, question, k, where=None):
         self.calls.append((question, k))
+        self.wheres.append(where)
         self.thread = threading.current_thread()
         ranked = [RankedChunk(i, t) for i, t in zip(self.items, self.traces, strict=True)]
         return ranked[:k]
@@ -93,6 +95,8 @@ def test_returns_retrieve_k_ranked_items_and_generates_from_context_k(tmp_dir):
     output = asyncio.run(pipeline.run("Akbank 2024 net kâr?", tags=dict(TAGS)))
 
     assert retriever.calls == [("Akbank 2024 net kâr?", 10)]
+    assert retriever.wheres == [None]  # no query_filter block: unfiltered, no parse call
+    assert len(backend.prompts) == 1
     assert retriever.thread is not threading.main_thread()  # blocking work off the loop
     assert [i.chunk_id for i in output.retrieved] == [i.chunk_id for i in items(10)]
 

@@ -4,12 +4,18 @@ Both return the top-k `SearchHit`s best first; `SearchHit.to_retrieved_item()` g
 the eval harness's `RetrievedItem`. `rrf_fuse` merges ranked lists (reciprocal rank
 fusion); the hybrid retrieval mode around it lives in `kaprag.rag.retriever`.
 
-Filters: both functions take an optional `where` SQL condition (a `psycopg.sql`
-Composable, e.g. `sql.SQL("bank = {}").format(sql.Literal("akbank"))`). It is ANDed
-into the WHERE clause in `_search`, so it applies before ranking in both arms. (With
-the HNSW index a selective filter can return fewer than k rows, because the index scan
-yields `hnsw.ef_search` candidates before filtering; the task adding filters should
-enable pgvector's `hnsw.iterative_scan` or raise ef_search.)
+Filters: both functions take an optional `where`, ANDed into the WHERE clause in
+`_search`, so it applies before ranking in both arms. It is either a `SqlFilter`
+(conditions with bound parameters; what the RAG pipeline uses) or a bare
+`psycopg.sql` Composable (e.g. `sql.SQL("bank = {}").format(sql.Literal("akbank"))`).
+With the HNSW index a selective filter would return fewer than k rows, because the
+index scan yields only `hnsw.ef_search` candidates before filtering; so a filtered
+dense query turns on pgvector's iterative index scan (`hnsw.iterative_scan =
+strict_order`: the scan continues until k rows pass the filter, results stay in exact
+distance order, up to `hnsw.max_scan_tuples` = 20000 visited tuples by default). The
+setting names and values are those of pgvector 0.8 (`pg_settings` of the installed
+0.8.7: `hnsw.iterative_scan` enum off | relaxed_order | strict_order). Unfiltered
+queries do not touch it.
 
 Dense: cosine distance via `<=>` on normalised vectors, score = 1 - distance (cosine
 similarity). `hnsw.ef_search` is raised to k for the query when k > 40 so the index
@@ -25,8 +31,10 @@ higher, normalised by log of the chunk length. Postgres ranking has no IDF, so v
 common lexemes (e.g. "banka") weigh as much as rare ones.
 """
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import Any
 
 from pgvector import Vector
@@ -37,6 +45,45 @@ from kaprag.index.store import table_name
 
 DEFAULT_HNSW_EF_SEARCH = 40
 RRF_K = 60
+
+
+@dataclass(frozen=True)
+class SqlFilter:
+    """ANDed SQL conditions on chunk-table columns with their bound parameters.
+
+    Immutable; each method returns a new filter with one more condition. Values are
+    never put into the SQL text: each condition refers to a named placeholder
+    (`%(f0)s`, `%(f1)s`, ...) bound at execution. Column names are quoted identifiers
+    chosen by code, never by model output. A new kind of condition (e.g. an access-role
+    overlap, `access_roles && %(fN)s`) is one more method calling `_add`.
+    """
+
+    conditions: tuple[sql.Composable, ...] = ()
+    params: Mapping[str, Any] = field(default_factory=dict)
+
+    def any_of(self, column: str, values: Sequence[Any]) -> SqlFilter:
+        """`column = ANY(values)`: the SQL `column IN (values)` as one array parameter."""
+        return self._add("{column} = ANY({value})", column, values)
+
+    def _add(self, template: str, column: str, values: Sequence[Any]) -> SqlFilter:
+        if not values:
+            raise ValueError(f"filter on {column!r} with no values would match nothing")
+        name = f"f{len(self.params)}"
+        condition = sql.SQL(template).format(
+            column=sql.Identifier(column), value=sql.Placeholder(name)
+        )
+        return SqlFilter((*self.conditions, condition), {**self.params, name: list(values)})
+
+    @property
+    def condition(self) -> sql.Composable:
+        """The conditions joined with AND (empty SQL when there are none)."""
+        return sql.SQL(" AND ").join(self.conditions)
+
+    def __bool__(self) -> bool:
+        return bool(self.conditions)
+
+
+Where = SqlFilter | sql.Composable
 
 
 @dataclass(frozen=True)
@@ -66,7 +113,7 @@ def dense_search(
     variant: str,
     query_embedding: Sequence[float] | Any,
     k: int = 10,
-    where: sql.Composable | None = None,
+    where: Where | None = None,
 ) -> list[SearchHit]:
     """Top-k chunks by cosine similarity to `query_embedding` (normalised, same model
     as the index; see `kaprag.index.embed.Embedder.embed_query`). `conn` needs the
@@ -78,6 +125,8 @@ def dense_search(
     with conn.transaction():
         if k > DEFAULT_HNSW_EF_SEARCH:
             conn.execute("SELECT set_config('hnsw.ef_search', %s, true)", (str(k),))
+        if _where_parts(where)[0] is not None:
+            conn.execute("SELECT set_config('hnsw.iterative_scan', 'strict_order', true)")
         return _search(
             conn,
             variant,
@@ -95,7 +144,7 @@ def fts_search(
     variant: str,
     query: str,
     k: int = 10,
-    where: sql.Composable | None = None,
+    where: Where | None = None,
 ) -> list[SearchHit]:
     """Top-k chunks by Turkish full-text rank for the OR of the query's lexemes."""
     tsquery = or_tsquery(query_lexemes(conn, query))
@@ -144,11 +193,12 @@ def _search(
     order: sql.Composable,
     params: dict[str, Any],
     k: int,
-    where: sql.Composable | None,
+    where: Where | None,
 ) -> list[SearchHit]:
     conditions = [match] if match is not None else []
-    if where is not None:
-        conditions.append(sql.SQL("({})").format(where))
+    where_sql, where_params = _where_parts(where)
+    if where_sql is not None:
+        conditions.append(sql.SQL("({})").format(where_sql))
     query = sql.SQL(
         "SELECT chunk_id, doc_id, page_start, page_end, {score} AS score, chunk_type,"
         " section_path, text FROM {table}{where} ORDER BY {order}, chunk_id LIMIT %(k)s"
@@ -158,7 +208,10 @@ def _search(
         where=sql.SQL(" WHERE ") + sql.SQL(" AND ").join(conditions) if conditions else sql.SQL(""),
         order=order,
     )
-    rows = conn.execute(query, {**params, "k": k}).fetchall()
+    clash = set(where_params) & {*params, "k"}
+    if clash:
+        raise ValueError(f"filter parameters {sorted(clash)} clash with the query's")
+    rows = conn.execute(query, {**params, **where_params, "k": k}).fetchall()
     return [
         SearchHit(
             chunk_id=chunk_id,
@@ -172,6 +225,13 @@ def _search(
         )
         for chunk_id, doc_id, page_start, page_end, score, chunk_type, section_path, text in rows
     ]
+
+
+def _where_parts(where: Where | None) -> tuple[sql.Composable | None, Mapping[str, Any]]:
+    """(condition or None, bound parameters) of a `where` argument."""
+    if isinstance(where, SqlFilter):
+        return (where.condition, where.params) if where else (None, {})
+    return where, {}
 
 
 def rrf_fuse(

@@ -12,6 +12,9 @@
       candidates: 40          # top-n of the first stage scored by the cross-encoder
       batch_size: 8
       max_length: 1024        # tokens per (question, chunk) pair
+    query_filter:             # optional; absent (or enabled: false) = no metadata filter
+      enabled: true
+      model: claude-haiku-5-5 # parses banks/years from the question (kaprag.rag.query_filter)
     retrieve_k: 10            # ranked items returned to the harness (recall@10, mrr@10)
     context_k: 5              # top items put into the prompt (<= retrieve_k)
     generation:
@@ -64,6 +67,11 @@ class RerankConfig(_Strict):
     max_length: int = Field(default=1024, ge=1)
 
 
+class QueryFilterConfig(_Strict):
+    enabled: bool = True
+    model: str = "claude-haiku-5-5"
+
+
 class GenerationConfig(_Strict):
     model: str = "claude-haiku-5-5"
 
@@ -77,6 +85,7 @@ class RagConfig(_Strict):
     index: Literal["fixed", "structure"]
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
     rerank: RerankConfig | None = None
+    query_filter: QueryFilterConfig | None = None
     retrieve_k: int = Field(default=10, ge=1)
     context_k: int = Field(default=5, ge=1)
     generation: GenerationConfig = Field(default_factory=GenerationConfig)

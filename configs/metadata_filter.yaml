@@ -1,0 +1,32 @@
+# T9d: structure plus a bank/year SQL filter parsed from the question by claude-haiku-5-5.
+# Every ablation is a copy of the previous config with one block changed (see kaprag.rag.config).
+description: "Metadata-filter RAG - structure-aware chunks, bank/year SQL filter parsed from the question by claude-haiku-5-5 (unfiltered if parsing fails), hybrid dense + FTS (RRF) top-40 reranked by bge-reranker-v2-m3, top-5 context, claude-haiku-5-5 generation"
+topic: metadata-filter
+pipeline:
+  factory: rag
+  params:
+    index: structure
+    retrieval:
+      mode: hybrid
+      candidates_per_arm: 40
+      rrf_k: 60
+    rerank:
+      model: BAAI/bge-reranker-v2-m3
+      device: cuda
+      candidates: 40
+      batch_size: 8
+      max_length: 1024
+    query_filter:
+      enabled: true
+      model: claude-haiku-5-5
+    retrieve_k: 10
+    context_k: 5
+    generation:
+      model: claude-haiku-5-5
+    embedding:
+      model: BAAI/bge-m3
+      device: cuda
+judge:
+  kind: llm
+  model: claude-sonnet-5-5
+concurrency: 4

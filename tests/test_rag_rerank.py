@@ -66,7 +66,8 @@ class FakeRetriever:
         self.calls = []
         self.closed = False
 
-    def retrieve(self, question, k):
+    def retrieve(self, question, k, where=None):
+        assert where is None
         self.calls.append((question, k))
         return self.items[:k]
 

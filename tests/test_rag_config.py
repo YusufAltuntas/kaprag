@@ -115,3 +115,23 @@ def test_structure_config_is_rerank_on_the_structure_index():
     )
     assert structure.pipeline.factory == rerank.pipeline.factory
     assert parse_rag_config(structure.pipeline.params).index == "structure"
+
+
+def test_metadata_filter_config_is_structure_plus_the_query_filter_block():
+    structure, metadata = load_config("structure"), load_config("metadata_filter")
+    assert metadata.topic == "metadata-filter"
+    assert metadata.pipeline.params["query_filter"] == {
+        "enabled": True,
+        "model": "claude-haiku-5-5",
+    }
+    assert {k: v for k, v in metadata.pipeline.params.items() if k != "query_filter"} == (
+        structure.pipeline.params
+    )
+    assert metadata.model_dump(
+        exclude={"pipeline", "description", "topic"}
+    ) == structure.model_dump(exclude={"pipeline", "description", "topic"})
+    assert metadata.pipeline.factory == structure.pipeline.factory
+    qf = parse_rag_config(metadata.pipeline.params).query_filter
+    assert (qf.enabled, qf.model) == (True, "claude-haiku-5-5")
+    for name in ("baseline", "hybrid", "rerank", "structure"):
+        assert parse_rag_config(load_config(name).pipeline.params).query_filter is None
