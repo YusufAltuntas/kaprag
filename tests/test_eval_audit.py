@@ -309,8 +309,12 @@ def interleaved_set() -> list[Question]:
             "q6",
             type="karsilastirma",
             derived_from=["q1", "q2"],
-            evidence=[ev("akbank-2024", 11), ev("garanti-2024", 20), ev("akbank-2024", 10),
-                      ev("garanti-2024", 21)],  # fmt: skip
+            evidence=[
+                ev("akbank-2024", 11),
+                ev("garanti-2024", 20),
+                ev("akbank-2024", 10),
+                ev("garanti-2024", 21),
+            ],  # fmt: skip
         ),
     ]
 
@@ -427,3 +431,77 @@ def test_cli_dry_run_and_refusal_exit_codes(tmp_dir, capsys):
     assert "already" in capsys.readouterr().err
     assert gold.read_bytes() == after
     assert main([*args, "--date", "18.11.2026"]) == 2
+
+
+# --- translated rows (questions_en.jsonl) ----------------------------------------------
+
+
+def translation(tid: str, source: Question) -> Question:
+    data = source.model_dump(mode="json") | {
+        "id": tid,
+        "question": f"English wording of {source.id}?",
+        "derived_from": [source.id],
+        "notes": f"translation of {source.id}",
+    }
+    data["expected"] = data["expected"] | {"answer": "English reference answer."}
+    return Question.model_validate(data)
+
+
+def write_translations(tmp_dir: Path, sources=("q1", "q2", "q5")) -> Path:
+    gold = by_id(gold_set())
+    path = tmp_dir / "gold" / "questions_en.jsonl"
+    save_questions([translation(f"en{s[1:]}", gold[s]) for s in sources], path)
+    return path
+
+
+def test_sync_translations_copies_final_evidence_and_expected_numbers(tmp_dir):
+    gold, dec = write_inputs(tmp_dir)  # q1 loses a page, q5 gets a new value
+    en = write_translations(tmp_dir)
+    before = {q.id: q for q in load_questions(en)}
+    out = apply_audit_file(gold, dec, date=DAY, translations_path=en)
+    assert out.translations_synced == ["en1", "en5"]
+    after = {q.id: q for q in load_questions(en)}
+    final = by_id(load_questions(gold))
+    for tid, sid in (("en1", "q1"), ("en5", "q5")):
+        t, s = after[tid], final[sid]
+        assert t.evidence == s.evidence
+        assert (t.expected.value, t.expected.unit, t.expected.tolerance) == (
+            s.expected.value, s.expected.unit, s.expected.tolerance
+        )  # fmt: skip
+        b = before[tid]
+        assert (t.question, t.expected.answer, t.key_points, t.notes) == (
+            b.question, b.expected.answer, b.key_points, b.notes
+        )  # fmt: skip
+        assert (t.id, t.split, t.verified, t.verified_at, t.audit) == (
+            b.id, b.split, b.verified, b.verified_at, b.audit
+        )  # fmt: skip
+    assert after["en2"] == before["en2"]  # q2 was only flagged: nothing to sync
+    assert "translations synced: 2 (en1 <- q1, en5 <- q5)" in format_summary(out)
+
+
+@pytest.mark.parametrize("source", ["q3", "q9"])  # q3 is rejected, q9 does not exist
+def test_sync_translations_refuses_rejected_or_missing_source(tmp_dir, source):
+    gold, dec = write_inputs(tmp_dir)
+    en = write_translations(tmp_dir, sources=("q1",))
+    rows = load_questions(en)
+    orphan = Question.model_validate(
+        rows[0].model_dump(mode="json") | {"id": "enX", "derived_from": [source]}
+    )
+    save_questions([*rows, orphan], en)
+    files = {p: p.read_bytes() for p in (gold, en)}
+    with pytest.raises(AuditRefused, match="enX"):
+        apply_audit_file(gold, dec, date=DAY, translations_path=en)
+    assert {p: p.read_bytes() for p in files} == files
+    assert not rejected_path_for(gold).exists()
+
+
+def test_cli_sync_translations_refusal_exit_code(tmp_dir, capsys):
+    gold, dec = write_inputs(tmp_dir)
+    en = write_translations(tmp_dir, sources=("q1", "q3"))  # q3 is being rejected
+    main = load_script().main
+    args = ["--decisions", str(dec), "--questions", str(gold), "--date", DAY]
+    assert main([*args, "--sync-translations", str(en)]) == 2
+    assert "en3" in capsys.readouterr().err
+    en = write_translations(tmp_dir, sources=("q1",))
+    assert main([*args, "--sync-translations", str(en)]) == 0
+    assert "translations synced: 1 (en1 <- q1)" in capsys.readouterr().out

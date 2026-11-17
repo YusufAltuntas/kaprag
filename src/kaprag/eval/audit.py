@@ -22,6 +22,13 @@ stays first where possible) and the final union's new pages are appended. The se
 rule matters because `kaprag.gold.evidence.propagate` puts the derived draft's own
 page first, so a union-built row is rarely in the sources' order.
 
+Optionally, translated rows (`eval/gold/questions_en.jsonl`, each with
+`derived_from: [<source id>]`) are synced afterwards: a translation whose `evidence`
+or `expected.value` / `unit` / `tolerance` differ from its source's FINAL row takes
+the source's values; its own text (`question`, `expected.answer`, `key_points`,
+`notes`) and everything else stay. A translation whose source is rejected or missing
+refuses the whole run.
+
 An audit is an agent's statement, not human verification: nothing here sets
 `verified`/`verified_at`, and rows that are verified or written by a human are never
 changed (the whole run is refused). Rows already carrying an `audit` are refused too
@@ -74,6 +81,9 @@ class AuditOutcome:
     evidence_removed: int = 0
     derived_recomputed: list[str] = field(default_factory=list)  # ids whose evidence changed
     already_rejected: list[str] = field(default_factory=list)  # reject ids already moved
+    translations: list[Question] | None = None  # synced translated rows, file order
+    translations_synced: list[str] = field(default_factory=list)  # ids updated
+    translation_sources: dict[str, str] = field(default_factory=dict)  # synced id -> source
     dry_run: bool = False
 
 
@@ -272,6 +282,51 @@ def apply_decisions(
     return outcome
 
 
+SYNCED_EXPECTED = ("value", "unit", "tolerance")
+
+
+def sync_translations(
+    translations: list[Question],
+    final: list[Question],
+    *,
+    rejected_ids: set[str] | frozenset[str] = frozenset(),
+) -> tuple[list[Question], list[str]]:
+    """Translated rows with their source's final evidence and expected numbers.
+
+    Returns (rows in input order, ids that changed). Raises `AuditRefused` when a
+    translation's source is rejected or missing, or a changed row is verified/human.
+    """
+    sources = {q.id: q for q in final}
+    problems = []
+    for t in translations:
+        if len(t.derived_from) != 1:
+            problems.append(f"{t.id} (derived_from must name one source)")
+        elif (sid := t.derived_from[0]) in rejected_ids:
+            problems.append(f"{t.id} (source {sid} is rejected)")
+        elif sid not in sources:
+            problems.append(f"{t.id} (source {sid} is not in the questions file)")
+    if problems:
+        raise AuditRefused(f"cannot sync translations: {', '.join(problems)}")
+
+    out, synced = [], []
+    for t in translations:
+        source = sources[t.derived_from[0]]
+        data = t.model_dump(mode="json")
+        src = source.model_dump(mode="json")
+        new = data | {
+            "evidence": src["evidence"],
+            "expected": data["expected"] | {k: src["expected"][k] for k in SYNCED_EXPECTED},
+        }
+        if new == data:
+            out.append(t)
+            continue
+        if why := _protected(t):
+            raise AuditRefused(f"refusing to sync translation {t.id} ({why})")
+        out.append(_validate(new))
+        synced.append(t.id)
+    return out, synced
+
+
 def apply_audit_file(
     questions_path: Path,
     decisions_path: Path,
@@ -279,11 +334,14 @@ def apply_audit_file(
     date: str,
     force: bool = False,
     dry_run: bool = False,
+    translations_path: Path | None = None,
 ) -> AuditOutcome:
     """Apply a decisions file to a gold file; writes nothing on any error or with `dry_run`.
 
+    With `translations_path`, translated rows are synced to their sources afterwards
+    (see `sync_translations`); everything is validated before any file is written.
     The rejected file is written first (as the review app does): a crash in between
-    leaves a duplicate row, never a lost one.
+    leaves a duplicate row, never a lost one; the translations file is written last.
     """
     questions_path = Path(questions_path)
     questions = load_for_review(questions_path)
@@ -299,10 +357,25 @@ def apply_audit_file(
         rejected_ids={q.id for q in rejected},
     )
     outcome.dry_run = dry_run
+    if translations_path is not None:
+        translations = load_for_review(Path(translations_path))
+        if not translations:
+            raise AuditError(f"no translated questions in {translations_path}")
+        gone = {q.id for q in rejected} | {q.id for q in outcome.rejected}
+        outcome.translations, outcome.translations_synced = sync_translations(
+            translations, outcome.questions, rejected_ids=gone
+        )
+        outcome.translation_sources = {
+            t.id: t.derived_from[0]
+            for t in outcome.translations
+            if t.id in outcome.translations_synced
+        }
     if not dry_run:
         if outcome.rejected:
             save_questions([*rejected, *outcome.rejected], rejected_path)
         save_questions(outcome.questions, questions_path)
+        if outcome.translations is not None and outcome.translations_synced:
+            save_questions(outcome.translations, Path(translations_path))
     return outcome
 
 
@@ -328,6 +401,11 @@ def format_summary(outcome: AuditOutcome) -> str:
     n = len(outcome.questions)
     dev = sum(q.split == "dev" for q in outcome.questions)
     lines.append(f"{'total':<14}{dev:>6}{n - dev:>6}{n:>7}")
+    if outcome.translations is not None:
+        pairs = [f"{t} <- {outcome.translation_sources[t]}" for t in outcome.translations_synced]
+        lines.append(
+            f"translations synced: {len(pairs)}" + (f" ({', '.join(pairs)})" if pairs else "")
+        )
     if outcome.dry_run:
         lines.append("dry run: nothing written")
     return "\n".join(lines)

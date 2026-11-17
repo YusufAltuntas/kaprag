@@ -2,14 +2,17 @@
 
     uv run python scripts/apply_audit.py --decisions runs/2026-11-18-gold-audit/decisions.json
     uv run python scripts/apply_audit.py --decisions <file> --questions <copy.jsonl> --dry-run
+    uv run python scripts/apply_audit.py --decisions <file> --sync-translations <questions_en.jsonl>
 
 Sets the `audit` field (never `verified`), applies fixes, removes unsupported extra
 evidence pages, moves rejected rows to rejected.jsonl next to the questions file and
-recomputes union-built derived evidence. See `kaprag.eval.audit` for the rules.
+recomputes union-built derived evidence. With --sync-translations, translated rows
+then take their source's final evidence and expected value/unit/tolerance (refused if
+a source is rejected or missing). See `kaprag.eval.audit` for the rules.
 
 Exit codes: 0 applied (or dry run), 1 the decisions cannot be applied (nothing
 written), 2 refused (verified / human rows, already audited rows without --force,
-bad arguments; nothing written).
+a translation whose source is rejected or missing, bad arguments; nothing written).
 """
 
 from __future__ import annotations
@@ -37,6 +40,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--force", action="store_true", help="re-apply to rows that already carry an audit"
     )
+    parser.add_argument(
+        "--sync-translations",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="translated gold file (e.g. eval/gold/questions_en.jsonl) to sync to the sources",
+    )
     return parser
 
 
@@ -52,7 +62,12 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         outcome = apply_audit_file(
-            args.questions, args.decisions, date=day, force=args.force, dry_run=args.dry_run
+            args.questions,
+            args.decisions,
+            date=day,
+            force=args.force,
+            dry_run=args.dry_run,
+            translations_path=args.sync_translations,
         )
     except AuditRefused as exc:
         print(f"refused, nothing written: {exc}", file=sys.stderr)
@@ -63,6 +78,8 @@ def main(argv: list[str] | None = None) -> int:
     print(format_summary(outcome))
     if not args.dry_run:
         print(f"written: {args.questions}")
+        if outcome.translations_synced:
+            print(f"written: {args.sync_translations}")
     return 0
 
 
