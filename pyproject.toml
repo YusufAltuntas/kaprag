@@ -16,6 +16,11 @@ dependencies = [
 ]
 
 [dependency-groups]
+# Review app (scripts/review_app.py); not a default group, so `uv sync` (and CI)
+# skips it. Install locally with `uv sync --group ml --group app`.
+app = [
+    "streamlit>=1.67",
+]
 dev = [
     # Runtime hook for hatchling's exact editable install (see tool.hatch below).
     "editables>=0.5",

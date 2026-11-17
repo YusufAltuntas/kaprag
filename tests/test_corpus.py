@@ -10,6 +10,7 @@ from kaprag.corpus import (
     check_document,
     raw_path,
     read_manifest,
+    render_page_png,
     sha256_file,
     write_manifest,
 )
@@ -96,3 +97,23 @@ def test_check_document_fails_on_mismatch_missing_and_undownloaded(tmp_dir):
     assert "sha256 mismatch" in check_document(doc(sha256="00" * 32), tmp_dir)
     assert "file missing" in check_document(doc("akbank-2023", sha256="00" * 32), tmp_dir)
     assert "not downloaded" in check_document(doc(), tmp_dir)
+
+
+def test_render_page_png(tmp_dir):
+    import pymupdf
+
+    path = tmp_dir / "two.pdf"
+    with pymupdf.open() as pdf:
+        pdf.new_page(width=200, height=100)
+        pdf.new_page(width=400, height=100)
+        pdf.save(path)
+    png = render_page_png(path, 2, zoom=1.0)
+    assert png[1:4] == b"PNG"
+    assert pymupdf.Pixmap(png).width == 400
+    assert pymupdf.Pixmap(render_page_png(path, 2, zoom=2.0)).width == 800
+    with pytest.raises(IndexError):
+        render_page_png(path, 3)
+    with pytest.raises(IndexError):
+        render_page_png(path, 0)
+    with pytest.raises(FileNotFoundError):
+        render_page_png(tmp_dir / "missing.pdf", 1)

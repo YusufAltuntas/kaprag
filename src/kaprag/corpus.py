@@ -109,6 +109,22 @@ def pdf_page_count(path: Path) -> int:
         return pdf.page_count
 
 
+def render_page_png(path: Path, page: int, zoom: float = 1.5) -> bytes:
+    """PNG image of one 1-based PDF page.
+
+    Raises FileNotFoundError for a missing file and IndexError for a page out of range.
+    """
+    import pymupdf
+
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    with pymupdf.open(path) as pdf:
+        if not 1 <= page <= pdf.page_count:
+            raise IndexError(f"page {page} outside 1-{pdf.page_count}")
+        pix = pdf[page - 1].get_pixmap(matrix=pymupdf.Matrix(zoom, zoom))
+        return pix.tobytes("png")
+
+
 def check_document(doc: Document, raw_dir: Path = DEFAULT_RAW_DIR) -> str | None:
     """Offline check of a document's local file; returns an error message or None if it is ok."""
     if doc.sha256 is None:
