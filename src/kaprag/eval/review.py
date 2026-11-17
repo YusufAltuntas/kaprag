@@ -30,8 +30,8 @@ from kaprag.eval.split import assign_split_for_new
 REJECTED_NAME = "rejected.jsonl"
 
 # Fields the user may change from the edit and add forms. Everything else (id, split,
-# pilot, derived_from, author, llm_checked, verified, verified_at) is kept from disk
-# or set by the function itself.
+# pilot, derived_from, author, llm_checked, verified, verified_at, audit) is kept from
+# disk or set by the function itself. `audit` is written only by scripts/apply_audit.py.
 EDITABLE_FIELDS: tuple[str, ...] = (
     "question",
     "type",
@@ -142,16 +142,21 @@ def edit(
     return _replace(Path(path), shown, _validate(data))
 
 
+def with_reject_reason(question: Question, reason: str) -> Question:
+    """The question with `Red gerekçesi: <reason>` appended to `notes` (if a reason is given)."""
+    if not reason.strip():
+        return question
+    note = f"Red gerekçesi: {reason.strip()}"
+    notes = f"{question.notes} | {note}" if question.notes else note
+    return question.model_copy(update={"notes": notes})
+
+
 def reject(path: Path, shown: Question, reason: str = "") -> Question:
     """Move one question to the rejected file, with the reason appended to `notes`."""
     path = Path(path)
     questions = load_for_review(path)
     index = _locate(questions, shown)
-    notes = shown.notes
-    if reason.strip():
-        note = f"Red gerekçesi: {reason.strip()}"
-        notes = f"{notes} | {note}" if notes else note
-    moved = shown.model_copy(update={"notes": notes})
+    moved = with_reject_reason(shown, reason)
     rejected_path = rejected_path_for(path)
     rejected = load_for_review(rejected_path)
     if any(q.id == shown.id for q in rejected):
@@ -187,6 +192,7 @@ def add_human_question(
         "llm_checked": False,
         "verified": True,
         "verified_at": _now_iso(now),
+        "audit": None,
     }
     draft = _validate(data)
     new = draft.model_copy(update={"split": assign_split_for_new(draft, questions)})

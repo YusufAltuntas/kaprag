@@ -1,9 +1,11 @@
 """Gold question schema (eval/README.md §3) and JSONL load/save helpers.
 
 Field names and enumerations follow the spec exactly. Every field is required (no
-defaults), unknown fields are rejected, and nothing here ever sets `verified`: it is
-read and written back verbatim. `evidence[].page` is the 1-based PDF page index
-(printed page numbers are not used anywhere in the project) and may be null.
+defaults) except `audit`, which defaults to null so files written before it still load;
+`save_questions` always writes it, right after `verified_at`. Unknown fields are
+rejected, and nothing here ever sets `verified`: it is read and written back verbatim.
+`evidence[].page` is the 1-based PDF page index (printed page numbers are not used
+anywhere in the project) and may be null.
 
 Cross-field rules enforced (all stated or implied by eval/README.md §1, §3, §4):
 - `type == "cevapsiz"`  <=>  `expected_behavior == "abstain"`.
@@ -70,6 +72,24 @@ class Evidence(_Strict):
     page: int | None = Field(ge=1)  # 1-based PDF page index
 
 
+class Audit(_Strict):
+    """An independent agent's check of the row against the rendered PDF page.
+
+    Weaker than `verified` (a human looking at the page) and never implies it:
+    `passed` = nothing wrong found; `fixed` = the audit's corrections were applied;
+    `flagged` = a problem needing a human decision, row left unchanged. The audited
+    subset is `passed` + `fixed`.
+    """
+
+    status: Literal["passed", "fixed", "flagged"]
+    by: Literal["agent"]
+    at: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    note: str
+
+
+AUDITED_STATUSES = frozenset({"passed", "fixed"})
+
+
 class Question(_Strict):
     id: str = Field(min_length=1)
     split: Split
@@ -88,7 +108,13 @@ class Question(_Strict):
     llm_checked: bool
     verified: bool
     verified_at: str | None
+    audit: Audit | None = None  # the only optional field: rows written before it load as null
     notes: str
+
+    @property
+    def audited(self) -> bool:
+        """In the audited subset (agent audit `passed` or `fixed`); not human verification."""
+        return self.audit is not None and self.audit.status in AUDITED_STATUSES
 
     @model_validator(mode="after")
     def _cross_field_rules(self) -> Question:

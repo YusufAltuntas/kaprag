@@ -151,5 +151,54 @@ def test_question_model_has_spec_fields_only():
     assert list(Question.model_fields) == [
         "id", "split", "pilot", "type", "question", "banks", "years", "basis",
         "expected_behavior", "expected", "evidence", "key_points", "derived_from",
-        "author", "llm_checked", "verified", "verified_at", "notes",
+        "author", "llm_checked", "verified", "verified_at", "audit", "notes",
     ]  # fmt: skip
+
+
+# --- audit (agent audit, not human verification) -------------------------------------
+
+AUDIT = {"status": "fixed", "by": "agent", "at": "2026-11-18", "note": "value corrected"}
+
+
+def test_row_without_audit_key_loads_as_null_and_saves_it_after_verified_at(tmp_dir):
+    data = base()
+    del data["audit"]
+    q = parse_question(line(data))
+    assert q.audit is None
+    out = tmp_dir / "q.jsonl"
+    save_questions([q], out)
+    keys = list(json.loads(out.read_text(encoding="utf-8")))
+    assert keys[keys.index("verified_at") + 1] == "audit"
+    assert json.loads(out.read_text(encoding="utf-8"))["audit"] is None
+
+
+def test_audit_object_round_trips(tmp_dir):
+    q = parse_question(line(base() | {"audit": AUDIT}))
+    assert (q.audit.status, q.audit.by, q.audit.at) == ("fixed", "agent", "2026-11-18")
+    assert q.audited
+    assert not parse_question(line(base() | {"audit": AUDIT | {"status": "flagged"}})).audited
+    assert not parse_question(line(base())).audited
+    out = tmp_dir / "q.jsonl"
+    save_questions([q], out)
+    assert json.loads(out.read_text(encoding="utf-8"))["audit"] == AUDIT
+    assert load_questions(out) == [q]
+
+
+@pytest.mark.parametrize(
+    "audit",
+    [
+        AUDIT | {"status": "verified"},
+        AUDIT | {"status": "rejected"},
+        AUDIT | {"by": "human"},
+        AUDIT | {"at": "18.11.2026"},
+        AUDIT | {"at": "2026-11-18T03:00:00"},
+        AUDIT | {"note": None},
+        AUDIT | {"extra": 1},
+        {k: v for k, v in AUDIT.items() if k != "note"},
+        "passed",
+        True,
+    ],
+)
+def test_invalid_audit_objects_fail(audit):
+    with pytest.raises(GoldSetError, match="'f002'"):
+        parse_question(line(base() | {"audit": audit}))

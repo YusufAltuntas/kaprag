@@ -320,3 +320,47 @@ def test_parse_evidence():
     ]
     with pytest.raises(ReviewError):
         parse_evidence("akbank-2024 sayfa")
+
+
+# --- audit field (agent audit; never touched by review flows) -------------------------
+
+AUDIT = {"status": "fixed", "by": "agent", "at": "2026-11-18", "note": "value corrected"}
+
+
+@pytest.fixture
+def audited_gold(gold):
+    """The fixture copy with an agent audit on f003 (unverified) and f002 (verified)."""
+    questions = load_questions(gold)
+    for i, q in enumerate(questions):
+        if q.id in ("f002", "f003"):
+            questions[i] = Question.model_validate(q.model_dump(mode="json") | {"audit": AUDIT})
+    save_questions(questions, gold)
+    return gold
+
+
+def test_approve_keeps_audit(audited_gold):
+    result = approve(audited_gold, by_id(audited_gold)["f003"], now=NOW)
+    assert result.audit.model_dump() == AUDIT
+    assert by_id(audited_gold)["f003"].audit.model_dump() == AUDIT
+
+
+def test_edit_keeps_audit_and_cannot_change_it(audited_gold):
+    shown = by_id(audited_gold)["f003"]
+    result = edit(audited_gold, shown, changes_of(shown) | {"notes": "x"}, approve=True, now=NOW)
+    assert result.audit.model_dump() == AUDIT
+    assert by_id(audited_gold)["f003"].audit.model_dump() == AUDIT
+    shown = by_id(audited_gold)["f002"]
+    with pytest.raises(ReviewError, match="audit"):
+        edit(audited_gold, shown, changes_of(shown) | {"audit": None})
+
+
+def test_reject_keeps_audit(audited_gold):
+    reject(audited_gold, by_id(audited_gold)["f003"], reason="r")
+    [moved] = load_questions(rejected_path_for(audited_gold))
+    assert moved.audit.model_dump() == AUDIT
+
+
+def test_human_question_has_no_audit(gold):
+    result = add_human_question(gold, human_draft(), now=NOW)
+    assert result.audit is None
+    assert json.loads(lines(gold)[-1])["audit"] is None

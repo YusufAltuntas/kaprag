@@ -17,7 +17,7 @@ pytest.importorskip("streamlit")
 from streamlit.testing.v1 import AppTest  # noqa: E402
 
 from kaprag.eval.review import rejected_path_for  # noqa: E402
-from kaprag.eval.schema import load_questions  # noqa: E402
+from kaprag.eval.schema import Question, load_questions, save_questions  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "review_app.py"
@@ -92,6 +92,25 @@ def test_app_reject_moves_question(gold):
     assert not at.exception
     assert "f003" not in {q.id for q in load_questions(gold)}
     assert [q.id for q in load_questions(rejected_path_for(gold))] == ["f003"]
+
+
+def test_app_shows_audit_status_read_only_and_approve_keeps_it(gold):
+    audit = {"status": "fixed", "by": "agent", "at": "2026-11-18", "note": "value corrected"}
+    questions = load_questions(gold)
+    questions[2] = Question.model_validate(questions[2].model_dump(mode="json") | {"audit": audit})
+    assert questions[2].id == "f003"
+    save_questions(questions, gold)
+    at = run_app()
+    text = " ".join(m.value for m in at.markdown)
+    assert "Agent denetimi:** düzeltildi (2026-11-18) — value corrected" in text
+    assert any("insan doğrulaması değildir" in c.value for c in at.caption)
+    at.selectbox(key="current_qid").set_value("f004").run()
+    assert "Agent denetimi:** denetlenmedi" in " ".join(m.value for m in at.markdown)
+    at.selectbox(key="current_qid").set_value("f003").run()
+    at.button(key="approve_f003").click().run()
+    assert not at.exception
+    after = {q.id: q for q in load_questions(gold)}["f003"]
+    assert after.verified is True and after.audit.model_dump() == audit
 
 
 def test_app_empty_state_and_add_question(tmp_dir, monkeypatch):

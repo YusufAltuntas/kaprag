@@ -64,6 +64,15 @@ ADD_HELP = (
     "(`verified: true`): soruyu PDF sayfasına bakarak siz yazdığınız için doğrulama budur. "
     "Kimlik (`qNNN`) ve dev/test ataması otomatik yapılır."
 )
+AUDIT_LABELS = {
+    "passed": "geçti",
+    "fixed": "düzeltildi",
+    "flagged": "işaretlendi, insan kararı gerekiyor",
+}
+AUDIT_HELP = (
+    "Agent denetimi, bağımsız bir agent'ın soruyu PDF sayfasına karşı kontrol etmesidir; "
+    "insan doğrulaması değildir ve “Onayla”nın yerini tutmaz. Buradan değiştirilemez."
+)
 _MD_SPECIAL = re.compile(r"([\\`*_\[\]#<>|~$])")
 ss = st.session_state
 
@@ -376,6 +385,15 @@ def select_neighbour(ids: list[str], delta: int) -> None:
 # --- pages -------------------------------------------------------------------------
 
 
+def audit_text(q: Question) -> str:
+    """Read-only audit status and note; the audit is set only by scripts/apply_audit.py."""
+    if q.audit is None:
+        return "denetlenmedi"
+    label = AUDIT_LABELS[q.audit.status]
+    note = f" — {md(q.audit.note)}" if q.audit.note else ""
+    return f"{label} ({q.audit.at}){note}"
+
+
 def show_question(q: Question) -> None:
     st.subheader(f"{q.id} · {q.type}")
     status = f"doğrulandı ({q.verified_at})" if q.verified else "doğrulanmadı"
@@ -403,7 +421,9 @@ def show_question(q: Question) -> None:
         rows.append(f"**Türetildiği sorular:** {', '.join(q.derived_from)}")
     if q.notes:
         rows.append(f"**Notlar:** {md(q.notes)}")
+    rows.append(f"**Agent denetimi:** {audit_text(q)}")
     st.markdown("\n\n".join(rows))
+    st.caption(AUDIT_HELP)
 
 
 def review_actions(path: Path, q: Question) -> None:
