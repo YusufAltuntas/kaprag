@@ -118,6 +118,8 @@ Sabah raporunu doldur.
 | 2026-11-17 | `LLMClient.complete` asenkron (`complete_sync` sarmalayıcısıyla); kalıcı hata `LLMCallError` fırlatır (önce trace'e yazılır), toplu koşucular yakalayıp soruyu `error` işaretler. `claude_code` backend'i `ANTHROPIC_API_KEY`'i süreç ortamından siler (SDK alt süreç ortamından değişken çıkaramıyor). | `claude-agent-sdk` asenkron; "run devam eder" kuralı çağıran tarafta uygulanır |
 | 2026-11-17 | `page` her yerde (parse çıktısı, gold kanıt, atıf) 1 tabanlı **PDF sayfa indeksi**dir, basılı sayfa numarası değil. | Raporların çoğu bir PDF sayfasına iki basılı sayfa koyuyor; review arayüzü PDF sayfasını render ediyor |
 | 2026-11-17 | Garanti korpusta yalnızca entegre faaliyet raporlarıyla kalır; ayrı BDDK finansal raporları eklenmez. Garanti `tablo` soruları raporda geçen rakamlarla sınırlıdır. | Garanti'nin entegre raporlarında tam bilanço/gelir tablosu yok; plan "bağımsız denetim raporları kapsam dışı" diyor. Yanlışsa bedeli: daha az Garanti tablo sorusu |
+| 2026-11-17 | 12 raporun 12'si bankaların kendi yatırımcı ilişkileri sitelerinden indirildi (KAP gerekmedi); dört banka da 2023–2025 için yalnızca "Entegre Faaliyet Raporu" yayımlıyor. Toplam 3.187 PDF sayfası (`data/manifest.csv`). | T2; inmeyen doküman yok |
+| 2026-11-17 | PyMuPDF çekirdek bağımlılıkta klasik sürüm hattına sabitlendi (`pymupdf>=1.26,<2`). | 2.x sürümü `onnxruntime`, `numpy` ve layout paketlerini çekirdeğe sürüklüyordu; T3 sayfa metni ve T7 sayfa görüntüsü için klasik sürüm yeterli, CI hafif kalıyor |
 
 ## Engeller
 
@@ -159,7 +161,7 @@ _(Gece oturumu doldurur: biten görevler, kalanlar, taslak ablation tablosu, kul
 - **Commit:** `feat: add LLM client with Claude Code subscription and Anthropic API backends`
 
 ### Task T2 — Veri edinimi (P0)
-- [ ] Tamamlandı
+- [x] Tamamlandı
 - 12 raporun resmi Türkçe PDF URL'lerini bul (önce bankanın yatırımcı ilişkileri sitesi, yoksa KAP).
 - `data/manifest.csv`: `doc_id, bank, year, url, sha256, pages, source_note`. `scripts/download.py` PDF'leri `data/raw/<doc_id>.pdf`'e indirir; `--verify` sha256'yı kontrol eder.
 - İnmeyen doküman Engeller'e yazılır. En az 8 doküman varsa devam edilir.
