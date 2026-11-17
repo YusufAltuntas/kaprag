@@ -7,15 +7,26 @@ Output rows follow the Docling schema in `kaprag.parsing.outputs`. How they are 
   `assign_section_paths` adds the heading hierarchy once the parts are joined, so
   the hierarchy runs across range boundaries.
 - Elements come from `DoclingDocument.iterate_items` over the body and furniture
-  layers, in Docling's reading order. Page headers/footers are kept as type
-  `furniture` (labelled by Docling, not stripped here). Pictures themselves carry
-  no text and are skipped; their captions are kept as `caption` rows.
+  layers, in Docling's reading order, descending into pictures
+  (`traverse_pictures=True`). Page headers/footers are kept as type `furniture`
+  (labelled by Docling, not stripped here). Pictures themselves carry no text and
+  get no row; their captions are kept as `caption` rows.
+- Text Docling finds inside a picture region (infographic figures, KPI boxes, chart
+  labels) is kept as rows with `in_picture: true`, right after the picture's
+  position in reading order. Such rows never open or close a section: a heading
+  inside a picture does not change `section_path`.
+- Docling joins a line ending in "-" to the next line without the hyphen
+  (de-hyphenation). Between two numbers that turns a range wrapped over a line
+  ("2013-" / "2022") into one wrong number ("20132022"); `keep_numeric_line_hyphens`
+  keeps such hyphens, giving "2013- 2022".
+- List items carry their marker (e.g. "1.") in front of the text, as in the PDF.
 - A table becomes one row: its Markdown export (column padding removed, see
   `compact_markdown_table`) as `text`; captions Docling linked
   to it go to `caption` and are not repeated as separate rows.
 - Headings: `title` -> level 0, `section_header` -> Docling's level. Levels are
   inferred by Docling's heading-hierarchy step (PDF bookmarks, numbering, font
-  style) within one converted page range.
+  style) within one converted page range, so levels and `section_path` are
+  approximate (see the limitation in `kaprag.parsing.outputs`).
 - Page provenance: `pages` lists every page in the element's provenance, `page` is
   the first. Docling does not merge elements across the page ranges we convert, so
   an element never spans two ranges.
@@ -67,26 +78,63 @@ def compact_markdown_table(markdown: str) -> str:
     return "\n".join(lines)
 
 
+def keep_numeric_line_hyphens(lines: list[str]) -> list[str]:
+    """Protect a line-final hyphen between two numbers from Docling's de-hyphenation.
+
+    A space after the hyphen makes Docling join the lines as usual but keep the "-".
+    """
+    out = list(lines)
+    for ix in range(len(out) - 1):
+        line, nxt = out[ix], out[ix + 1].lstrip()
+        if line.endswith("-") and line[-2:-1].isdigit() and nxt[:1].isdigit():
+            out[ix] = line + " "
+    return out
+
+
+def _patch_docling_dehyphenation() -> None:
+    """Make Docling's text assembly apply `keep_numeric_line_hyphens` (idempotent)."""
+    from docling.models.stages.page_assemble.page_assemble_model import PageAssembleModel
+
+    original = PageAssembleModel.sanitize_text
+    if getattr(original, "_kaprag_patched", False):
+        return
+
+    def sanitize_text(self, lines):
+        return original(self, keep_numeric_line_hyphens(lines))
+
+    sanitize_text._kaprag_patched = True
+    PageAssembleModel.sanitize_text = sanitize_text
+
+
 def _label(item) -> str:
     label = item.label
     return str(getattr(label, "value", label))
 
 
-def items_to_part_rows(items: Iterable, doc) -> list[dict]:
+def items_to_part_rows(items: Iterable[tuple], doc) -> list[dict]:
     """Map Docling items (in reading order) to part rows (rows without `section_path`).
 
-    `items` are DocItems as yielded by `DoclingDocument.iterate_items`; `doc` is the
-    document they belong to (needed for table Markdown and captions).
+    `items` are `(item, depth)` pairs as yielded by `DoclingDocument.iterate_items`
+    with `traverse_pictures=True`; `doc` is the document they belong to (needed for
+    table Markdown and captions). An item is inside a picture if it follows the
+    picture at a greater depth and is not one of the picture's captions.
     """
     items = list(items)
     table_caption_refs = {
-        ref.cref for item in items if _label(item) in TABLE_LABELS for ref in item.captions
+        ref.cref for item, _ in items if _label(item) in TABLE_LABELS for ref in item.captions
     }
     rows: list[dict] = []
     last_page = None
-    for item in items:
+    open_pictures: list[tuple[int, set[str]]] = []  # (depth, caption refs) of enclosing pictures
+    for item, depth in items:
+        while open_pictures and depth <= open_pictures[-1][0]:
+            open_pictures.pop()
         label = _label(item)
-        if label in _SKIPPED_LABELS or item.self_ref in table_caption_refs:
+        in_picture = any(item.self_ref not in captions for _, captions in open_pictures)
+        if label in _SKIPPED_LABELS:
+            open_pictures.append((depth, {ref.cref for ref in item.captions}))
+            continue
+        if item.self_ref in table_caption_refs:
             continue
         caption = None
         if label in TABLE_LABELS:
@@ -94,6 +142,9 @@ def items_to_part_rows(items: Iterable, doc) -> list[dict]:
             caption = item.caption_text(doc) or None
         else:
             text = getattr(item, "text", "") or ""
+            marker = (getattr(item, "marker", "") or "") if label == "list_item" else ""
+            if marker.strip() and text.strip():
+                text = f"{marker.strip()} {text}"
         if not text.strip():
             continue
         pages = sorted({prov.page_no for prov in item.prov})
@@ -116,9 +167,16 @@ def items_to_part_rows(items: Iterable, doc) -> list[dict]:
                 "level": level,
                 "text": text,
                 "caption": caption,
+                "in_picture": in_picture,
             }
         )
     return rows
+
+
+def document_part_rows(doc, content_layers: set) -> list[dict]:
+    """Part rows of a converted DoclingDocument, including text inside pictures."""
+    items = doc.iterate_items(included_content_layers=content_layers, traverse_pictures=True)
+    return items_to_part_rows(items, doc)
 
 
 def assign_section_paths(rows: Iterable[dict]) -> Iterable[dict]:
@@ -126,10 +184,11 @@ def assign_section_paths(rows: Iterable[dict]) -> Iterable[dict]:
 
     A heading closes every open heading of the same or a deeper level. A heading's
     own path holds its ancestors; any other row's path holds all open headings.
+    Headings inside pictures (`in_picture`) are treated like any other row.
     """
     stack: list[tuple[int, str]] = []
     for row in rows:
-        if row["type"] == "heading":
+        if row["type"] == "heading" and not row["in_picture"]:
             while stack and stack[-1][0] >= row["level"]:
                 stack.pop()
             path = [text for _, text in stack]
@@ -195,6 +254,7 @@ class DoclingConverter:
             accelerator_options=AcceleratorOptions(device=device, num_threads=num_threads),
         )
         options.heading_hierarchy_options.enabled = True
+        _patch_docling_dehyphenation()
         self.device = device
         self._converter = DocumentConverter(
             format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)}
@@ -216,14 +276,7 @@ class DoclingConverter:
         if result.status is not ConversionStatus.SUCCESS:
             errors = "; ".join(e.error_message for e in result.errors) or "no error details"
             raise RuntimeError(f"Docling status {result.status.value}: {errors}")
-        doc = result.document
-        items = (
-            item
-            for item, _ in doc.iterate_items(
-                included_content_layers={ContentLayer.BODY, ContentLayer.FURNITURE}
-            )
-        )
-        return items_to_part_rows(items, doc)
+        return document_part_rows(result.document, {ContentLayer.BODY, ContentLayer.FURNITURE})
 
     def peak_memory_gb(self) -> float | None:
         """Peak CUDA memory allocated by this process so far, or None off the GPU."""

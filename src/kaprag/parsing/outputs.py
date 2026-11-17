@@ -19,10 +19,20 @@ reading order (see `kaprag.parsing.docling_parser` for how rows are built):
       "section_path": [str, ...], # headings the element sits under, outermost first;
                                   # for a heading: its ancestors, not itself
       "text": str,                # tables rendered as Markdown
-      "caption": str | null       # a table's caption, when Docling linked one
+      "caption": str | null,      # a table's caption, when Docling linked one
+      "in_picture": bool          # text Docling found inside a picture region
+                                  # (infographic figures, KPI boxes, chart labels)
     }
 
 `page` is always the 1-based PDF page index, not the printed page number.
+
+Known limitation of `level` and `section_path`: Docling infers heading levels
+(mostly from font style; few of these PDFs have bookmarks) separately for each page
+batch it converts, and the levels are not comparable across batches. `section_path`
+is built over the whole document from those levels, so it is approximate and
+depends on `--pages-per-batch` (the full run uses 20). The reliable part is the
+nearest heading, the last element of `section_path`; do not rely on deeper paths
+or on comparing levels across pages.
 """
 
 import json
@@ -67,6 +77,7 @@ class Element:
     section_path: list[str]
     text: str
     caption: str | None
+    in_picture: bool
 
 
 def parsed_path(parser: str, doc_id: str, parsed_dir: Path = DEFAULT_PARSED_DIR) -> Path:

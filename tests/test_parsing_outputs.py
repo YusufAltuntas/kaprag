@@ -20,6 +20,7 @@ ELEMENT_ROW = {
     "section_path": ["BİLANÇO", "Varlıklar"],
     "text": "| a | b |\n|---|---|\n| 1 | 2 |",
     "caption": "Tablo 1",
+    "in_picture": False,
 }
 
 
@@ -75,3 +76,11 @@ def test_iter_jsonl_reports_bad_line(tmp_dir):
     path.write_text('{"page": 1, "text": "a"}\n{broken\n', encoding="utf-8")
     with pytest.raises(ValueError, match=r"p\.jsonl:2"):
         list(iter_pages(path))
+
+
+def test_iter_elements_rejects_rows_without_in_picture(tmp_dir):
+    row = {k: v for k, v in ELEMENT_ROW.items() if k != "in_picture"}
+    path = tmp_dir / "e.jsonl"
+    path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="row keys"):
+        list(iter_elements(path))

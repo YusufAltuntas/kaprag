@@ -82,6 +82,8 @@ def render_comparison(
         if e.level is not None:
             head += f" L{e.level}"
         head += f" p{','.join(map(str, e.pages))}]"
+        if e.in_picture:
+            head = head[:-1] + " in-picture]"
         if e.section_path:
             head += " " + " > ".join(e.section_path)
         lines.append(head)
