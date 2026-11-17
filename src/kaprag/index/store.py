@@ -27,6 +27,7 @@ import psycopg
 from pgvector import Vector
 from pgvector.psycopg import register_vector
 from psycopg import Connection, sql
+from psycopg.pq import TransactionStatus
 
 from kaprag.chunking.base import Chunk
 from kaprag.corpus import Document
@@ -109,9 +110,21 @@ def replace_document(
     chunks: Sequence[Chunk],
     embeddings: Sequence[Any],
 ) -> int:
-    """Replace all rows of `doc` in the variant's table in one transaction; returns
-    the number of rows written. `embeddings[i]` (list or numpy array) belongs to
-    `chunks[i]`."""
+    """Replace all rows of `doc` in the variant's table in one committed transaction;
+    returns the number of rows written. `embeddings[i]` (list or numpy array) belongs
+    to `chunks[i]`.
+
+    The write is always its own top-level transaction, committed on return: a
+    transaction already open on `conn` (e.g. the implicit one a plain SELECT leaves
+    behind) is committed first, so the write can never become a savepoint inside a
+    longer transaction that a later rollback or crash would discard. A connection in a
+    failed transaction is refused.
+    """
+    status = conn.info.transaction_status
+    if status == TransactionStatus.INTRANS:
+        conn.commit()
+    elif status != TransactionStatus.IDLE:
+        raise RuntimeError(f"connection not idle ({status.name}); roll back first")
     if len(chunks) != len(embeddings):
         raise ValueError(f"{len(chunks)} chunks but {len(embeddings)} embeddings")
     table = sql.Identifier(table_name(variant))

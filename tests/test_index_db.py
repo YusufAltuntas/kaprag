@@ -103,6 +103,38 @@ def test_replace_document_rolls_back_on_error(conn):
     assert conn.execute("SELECT text FROM chunks_fixed").fetchall() == [("keep",)]
 
 
+def committed_counts(conn) -> dict[str, int]:
+    """Row counts of chunks_fixed as seen from a second connection (committed data only)."""
+    with connect(os.environ["DATABASE_URL"]) as other:
+        other.execute(sql.SQL("SET search_path TO {}, public").format(sql.Identifier(
+            current_schema(conn))))  # fmt: skip
+        return row_counts(other, "fixed")
+
+
+def test_each_document_is_committed_even_after_a_read_and_a_later_failure(conn):
+    # The resume path of the build CLI: a read first, which leaves a transaction open.
+    a, b = doc("akbank-2023"), doc("garanti-2023")
+    assert row_counts(conn, "fixed") == {}
+    replace_document(conn, "fixed", a, [chunk(a.doc_id, 0, "a")], [one_hot(0)])
+    assert committed_counts(conn) == {"akbank-2023": 1}
+
+    # A later document fails (here: inside the write) and the caller rolls back.
+    with pytest.raises(Exception, match="duplicate key"):
+        replace_document(
+            conn, "fixed", b, [chunk(b.doc_id, 0, "x"), chunk(b.doc_id, 0, "y")],
+            [one_hot(0), one_hot(1)],
+        )  # fmt: skip
+    conn.rollback()
+    assert committed_counts(conn) == {"akbank-2023": 1}
+
+    # A failure before the write (e.g. while embedding), after another read.
+    row_counts(conn, "fixed")
+    with pytest.raises(ValueError):
+        replace_document(conn, "fixed", b, [chunk(b.doc_id, 0, "x")], [])
+    conn.rollback()
+    assert committed_counts(conn) == {"akbank-2023": 1}
+
+
 def test_dense_search_ranks_by_cosine(conn):
     a = doc("akbank-2023")
     chunks = [chunk(a.doc_id, i, f"t{i}", page=i + 1) for i in range(3)]
