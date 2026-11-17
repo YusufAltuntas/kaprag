@@ -103,19 +103,21 @@ def main(argv: list[str] | None = None) -> int:
         log.exception("eval run failed")
         return 1
 
-    overall = result.summary["overall"]
-    verified = result.summary["verified"]
     log.info("run folder: %s", result.run_dir)
-    log.info(
-        "questions: %d (ok %d, error %d); answer_accuracy: %s (verified n=%d: %s)",
-        overall["n"],
-        overall["n_ok"],
-        overall["n_error"],
-        _fmt(overall["metrics"]["answer_accuracy"]["value"]),
-        verified["n"],
-        _fmt(verified["metrics"]["answer_accuracy"]["value"]),
-    )
+    log.info("%s", summary_line(result.summary))
     return 0
+
+
+def summary_line(summary: dict) -> str:
+    """One console line: counts and answer accuracy overall, verified and agent-audited."""
+    overall, verified, audited = summary["overall"], summary["verified"], summary["audited"]
+    return (
+        f"questions: {overall['n']} (ok {overall['n_ok']}, error {overall['n_error']}); "
+        f"answer_accuracy: {_fmt(overall['metrics']['answer_accuracy']['value'])} "
+        f"(verified n={verified['n']}: {_fmt(verified['metrics']['answer_accuracy']['value'])}; "
+        f"agent-audited n={audited['n']}: "
+        f"{_fmt(audited['metrics']['answer_accuracy']['value'])})"
+    )
 
 
 def _fmt(value: float | None) -> str:

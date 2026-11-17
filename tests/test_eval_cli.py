@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from kaprag.eval.cli import main
+from kaprag.eval.cli import main, summary_line
 
 FIXTURE = Path(__file__).parent / "fixtures" / "eval" / "questions.jsonl"
 
@@ -40,6 +40,20 @@ def test_end_to_end_dev_run(tmp_dir):
     summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
     assert summary["run"]["config_name"] == "fake-oracle"
     assert summary["overall"]["n"] == 11
+    assert summary["audited"]["n"] == 0  # the fixture has no agent-audited rows
+
+
+def test_summary_line_mentions_verified_and_audited():
+    def group(n, value):
+        return {"n": n, "n_ok": n, "n_error": 0,
+                "metrics": {"answer_accuracy": {"value": value, "n": n}}}  # fmt: skip
+
+    line = summary_line({"overall": group(5, 0.6), "verified": group(0, None),
+                         "audited": group(4, 0.75)})  # fmt: skip
+    assert line == (
+        "questions: 5 (ok 5, error 0); answer_accuracy: 0.600 "
+        "(verified n=0: n/a; agent-audited n=4: 0.750)"
+    )
 
 
 def test_pilot_with_limit(tmp_dir):

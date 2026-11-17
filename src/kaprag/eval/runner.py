@@ -7,7 +7,7 @@ is added when the name is taken):
 - `config.yaml`: the resolved config plus `run` metadata (split, question file and its
   sha256, git commit, start time, limit).
 - `results.jsonl`: one row per question (see `_result_row`).
-- `summary.json`: `run` metadata, `overall` / `verified` / `by_type` groups (see
+- `summary.json`: `run` metadata, `overall` / `verified` / `audited` / `by_type` groups (see
   `kaprag.eval.summary`), `judge` and `unattributed_llm_calls`.
 - `traces.jsonl`: one self-contained record per question (see `_trace_record`).
 
@@ -365,6 +365,7 @@ def _result_row(run: _QuestionRun, calls: list[dict[str, Any]]) -> dict[str, Any
         "split": q.split,
         "pilot": q.pilot,
         "verified": q.verified,
+        "audit": q.audit.status if q.audit is not None else None,
         "expected_behavior": q.expected_behavior,
         "status": run.status,
         "error": run.error,

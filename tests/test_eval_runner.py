@@ -14,7 +14,7 @@ from kaprag.eval.fake_pipeline import FakeOraclePipeline
 from kaprag.eval.judge import KEY_POINTS_SYSTEM, TEXT_SYSTEM
 from kaprag.eval.pipeline import register_pipeline, resolve_factory
 from kaprag.eval.runner import make_run_dir, run_eval, select_questions
-from kaprag.eval.schema import load_questions
+from kaprag.eval.schema import Audit, load_questions
 from kaprag.llm import LLMClient, Usage, pricing
 from kaprag.llm.types import BackendResponse
 
@@ -117,12 +117,14 @@ def test_run_writes_exactly_the_five_files(tmp_dir):
     assert [r["id"] for r in results] == [q.id for q in dev]
     assert [t["qid"] for t in traces] == [q.id for q in dev]
     assert [r["verified"] for r in results] == [q.verified for q in dev]
+    assert [r["audit"] for r in results] == [None] * len(dev)
     assert {r["status"] for r in results} == {"ok", "error"}  # seed 1 fails some
 
     summary = json.loads(d.joinpath("summary.json").read_text(encoding="utf-8"))
     assert summary["overall"]["n"] == len(dev)
     assert summary["overall"]["n_error"] == sum(r["status"] == "error" for r in results)
     assert summary["verified"]["n"] == sum(q.verified for q in dev)
+    assert summary["audited"]["n"] == 0
     assert set(summary["by_type"]) >= {"olgusal", "sentez", "belirsiz"}
     assert summary["run"]["run_id"] == d.name
 
@@ -324,3 +326,29 @@ def test_pipeline_debug_goes_to_traces_only(tmp_dir):
     rows = read_jsonl(result.run_dir / "results.jsonl")
     answered = [r for r in rows if r["answer"]]
     assert all("pipeline_debug" not in r and "debug" not in r["answer"] for r in answered)
+
+
+def test_results_carry_audit_status_and_summary_has_audited_group(tmp_dir):
+    statuses = {"f001": "passed", "f002": "fixed", "f003": "flagged"}
+    questions = [
+        q.model_copy(
+            update={"audit": Audit(status=statuses[q.id], by="agent", at="2026-11-18", note="")}
+        )
+        if q.id in statuses
+        else q
+        for q in QUESTIONS
+    ]
+    result = run_eval(
+        config(params={"error_rate": 0, "fail_rate": 0}),
+        config_name="unit",
+        questions=questions,
+        questions_path=FIXTURE,
+        split="dev",
+        runs_dir=tmp_dir / "runs",
+        today=DAY,
+    )
+    rows = {r["id"]: r for r in read_jsonl(result.run_dir / "results.jsonl")}
+    assert {qid: rows[qid]["audit"] for qid in statuses} == statuses
+    assert rows["f004"]["audit"] is None
+    assert result.summary["audited"]["n"] == 2  # passed + fixed; flagged is not audited
+    assert result.summary["audited"]["metrics"]["answer_accuracy"] == {"value": 1.0, "n": 2}

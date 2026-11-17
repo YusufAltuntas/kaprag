@@ -2,8 +2,10 @@
 
 Every metric is reported as `{"value": mean or null, "n": questions it applies to}`;
 `n == 0` gives `value: null`, never 0. Booleans average as rates. The same block is
-computed for the whole selected set, the `verified: true` subset and each question
-type (all seven types are always present so runs line up column by column).
+computed for the whole selected set, the `verified: true` subset (a human checked the
+page), the `audited` subset (an agent audit `passed` or `fixed` the row; NOT human
+verification) and each question type (all seven types are always present so runs
+line up column by column).
 
 Operational block per group:
 - `cost_usd_total` / `cost_usd_per_question`: the pipeline's API-equivalent cost
@@ -21,7 +23,7 @@ import math
 from collections.abc import Iterable, Sequence
 from typing import Any
 
-from kaprag.eval.schema import QUESTION_TYPES
+from kaprag.eval.schema import AUDITED_STATUSES, QUESTION_TYPES
 
 # summary metric name -> per-question field in results.jsonl `metrics`
 METRICS: dict[str, str] = {
@@ -98,10 +100,11 @@ def summarize_group(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
 
 
 def summarize(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
-    """`overall`, `verified` and `by_type` groups."""
+    """`overall`, `verified`, `audited` and `by_type` groups."""
     return {
         "overall": summarize_group(rows),
         "verified": summarize_group([r for r in rows if r["verified"]]),
+        "audited": summarize_group([r for r in rows if r["audit"] in AUDITED_STATUSES]),
         "by_type": {
             t: summarize_group([r for r in rows if r["type"] == t]) for t in QUESTION_TYPES
         },

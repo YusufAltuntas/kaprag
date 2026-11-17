@@ -244,13 +244,14 @@ def test_mean_metric_and_percentile():
     assert percentile([float(i) for i in range(1, 101)], 95) == pytest.approx(95.05)
 
 
-def row(qid, *, status="ok", latency=100.0, eligible=True, cost=0.01, judge_cost=0.0):
+def row(qid, *, status="ok", latency=100.0, eligible=True, cost=0.01, judge_cost=0.0, audit=None):
     q = Q[qid]
     output = None if status == "error" else out(ans(abstained=q.type == "cevapsiz"))
     return {
         "id": qid,
         "type": q.type,
         "verified": q.verified,
+        "audit": audit,
         "status": status,
         "metrics": score_question(q, output, text_correct=True),
         "latency_ms": latency,
@@ -298,5 +299,22 @@ def test_summarize_verified_empty_gives_nulls():
         "olgusal", "tablo", "hesaplama", "karsilastirma", "sentez", "cevapsiz", "belirsiz"
     }  # fmt: skip
     assert s["by_type"]["olgusal"]["metrics"]["answer_accuracy"]["value"] is None
+    assert s["audited"]["n"] == 0
+    assert s["audited"]["metrics"]["answer_accuracy"] == {"value": None, "n": 0}
+    assert s["audited"]["operational"]["cost_usd_total"] is None
     assert s["by_type"]["belirsiz"]["n"] == 1
     json.dumps(s)  # serialisable
+
+
+def test_summarize_audited_group_is_passed_and_fixed_only():
+    rows = [
+        row("f001", audit="passed"),
+        row("f003", audit="fixed", status="error"),
+        row("f007", audit="flagged"),
+        row("f012"),
+    ]
+    s = summarize(rows)
+    assert list(s) == ["overall", "verified", "audited", "by_type"]
+    assert (s["audited"]["n"], s["audited"]["n_error"]) == (2, 1)
+    assert s["audited"]["metrics"]["answer_accuracy"] == {"value": 0.5, "n": 2}
+    assert s["audited"] == summarize_group(rows[:2])
