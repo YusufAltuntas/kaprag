@@ -135,6 +135,8 @@ Sabah raporunu doldur.
 | 2026-11-17 | Pilot zorluk değerlendirmesi (eval §7 adım 9): baseline 30 pilot soruda %51,3 doğruluk (`runs/2026-11-17-baseline-pilot/`) → %15–%85 aralığında, set ne fazla kolay ne fazla zor; T6 taslakları ayarlanmadı. Baseline dev sonucu: 84 soruda %45,5 (`runs/2026-11-17-baseline-dev/`). | Plan T8 |
 | 2026-11-17 | T9 kuralları: hibrit aramada her koldan ilk 40 aday, RRF k=60 (eşitlikte chunk kimliği sırası — alfabetik olarak önce gelen banka lehine, deterministik); reranker birleşik ilk 40 adayı sıralar, metrikler için ilk 10 ve üretim için ilk 5 yeniden sıralanmış listeden alınır; metadata filtresi `bank IN (…)` ve `year IN (soruda geçen yıllar ∩ korpus yılları)`, ayrıştırma başarısızsa filtresiz; filtreli vektör aramasında pgvector `hnsw.iterative_scan = strict_order`. T9 dört adım iki uygulayıcı dispatch'iyle yapıldı (a+b, c+d); her adımın kendi commit'i ve dev koşusu var. T9e (opsiyonel) yapılmadı. | Plan T9; dispatch sayısını azaltmak kota ve süre kazandırdı. Dense aramada 40'tan fazla aday istenince sessizce 40'ta kesen bir hata T9a'da bulunup düzeltildi (önceki koşuları etkilemiyor: en fazla 10 istiyorlardı) |
 | 2026-11-17 | "T9'un en iyi pipeline'ı" = **`rerank`** (fixed chunk + hibrit + reranker): dev cevap doğruluğu 0,592 (`runs/2026-11-17-rerank-dev/`); structure 0,567, metadata_filter 0,575. T10 router'ı basit soruları `rerank`'e yollar; T12'de test split'inde baseline ile tek bir en iyi konfigürasyon çalıştırılır: `rerank`, ya da dev'de onu geçerse T10 router'ı. | Birincil ölçüt cevap doğruluğu. Üç konfigürasyon arasındaki fark 84 soruda gürültü içinde; daha basit ve recall'u en yüksek olan seçildi |
+| 2026-11-17 | T10 router kuralları: sınıflandırma (Haiku) `simple` / `multi`, şüphede `simple`; `simple` yol `rerank` ile birebir aynı; `multi` yolda ayrıştırma (Sonnet) kapalı bir işlem kümesinden tek işlem ve en fazla 8 rakam araması üretir, yıllar arası değişimde iki rakam da son raporun karşılaştırmalı sütunundan okunur (eval §4); her arama `rerank` yığını + banka/rapor yılı SQL filtresiyle yapılır ve mevcut üretim/normalizasyon kodunu kullanır; bütün aritmetik Python'da (Decimal), birim ya da esas uyuşmazlığında ve eksik rakamda hesap yapılmaz, cevap eksik rakamı adıyla söyleyen bir reddetmedir; son cevabın `value`/`unit` alanı modelden değil hesaptan gelir. `langgraph` çekirdek bağımlılık (`langchain-core` ve `langsmith`'i de getiriyor). **Test split'inde "en iyi konfigürasyon" = `router`** (dev cevap doğruluğu 0,651; `rerank` 0,592). | Plan T10; "hesaplar LLM'e bırakılmaz". Dev sonucu `runs/2026-11-17-router-dev/` |
+| 2026-11-17 | T11'de roller gerçek indeks tablolarına hemen yazılmadı; uygulayıcı kopya şemada doğruladı, gerçek tablolara atama test koşularından sonra yapılır. Görev sırası: T11, T10'dan önce; T14 (P2), T12'den önce başlatıldı. | `access_roles` güncellemesi ~15 bin satırın yeni sürümünü ve yeni HNSW girdilerini üretir; yaklaşık aramanın sonuçları ölçüm serisinin ortasında değişebilirdi. Sıra değişiklikleri boşta kalan uygulayıcı süresini kullanmak için |
 
 ## Engeller
 
@@ -154,9 +156,9 @@ _Ara durum — son güncelleme 2026-11-17 ~21:35. Oturum sürüyor; iş bitince 
 
 **Biten görevler (kabul ölçütleri orkestratör tarafından çalıştırıldı):** T0–T8 (P0'ın tamamı).
 
-T9 (a–d) da bitti ve dev'de ölçüldü.
+T9 (a–d) ve T10 da bitti ve dev'de ölçüldü. T11'in kodu bitti ve review'dan geçti (kopya şemada sızıntı 0/30); rollerin gerçek indeks tablolarına yazılması ölçümleri bozmamak için test koşularından sonraya bırakıldı.
 
-**Süren / kalan:** T11 (erişim kontrolü) sürüyor; kalanlar T10, T12 (P1), T13–T14 (P2), final whole-branch review.
+**Süren / kalan:** test split'inde baseline ve router koşuları (tek sefer) sürüyor; ardından T11 rollerinin uygulanması ve sızıntı testi, T12 README, T14 (sürüyor), T13, final whole-branch review.
 
 **Taslak sonuçlar — doğrulanmamış gold set (hiçbir soru `verified` değil; README/CV'ye girmez):**
 
@@ -168,6 +170,7 @@ T9 (a–d) da bitti ve dev'de ölçüldü.
 | + rerank (ilk 40 → bge-reranker-v2-m3) | dev | 84 | 0,592 | 0,811 | 0,919 | 0,364 | $0,0014 | 9,5 s | `runs/2026-11-17-rerank-dev/` |
 | + structure (Docling tabanlı indeks) | dev | 84 | 0,567 | 0,730 | 0,770 | 0,333 | $0,0012 | 7,9 s | `runs/2026-11-17-structure-dev/` |
 | + metadata_filter (Haiku banka/yıl → SQL filtresi) | dev | 84 | 0,575 | 0,770 | 0,838 | 0,333 | $0,0013 | 10,3 s | `runs/2026-11-17-metadata-filter-dev/` |
+| router (LangGraph: basit → `rerank`; hesaplama/karşılaştırma → ayrıştır + Python hesap) | dev | 84 | 0,651 | 0,905 | 0,932 | 0,197 | $0,0045 | (bkz. not) | `runs/2026-11-17-router-dev/` |
 
 Dev'de tip bazında cevap doğruluğu:
 
@@ -178,6 +181,7 @@ Dev'de tip bazında cevap doğruluğu:
 | + rerank | 0,77 | 0,55 | 0,11 | 0,31 | 0,63 | 1,00 | 0,83 |
 | + structure | 0,85 | 0,41 | 0,11 | 0,38 | 0,52 | 1,00 | 0,83 |
 | + metadata_filter | 0,85 | 0,45 | 0,11 | 0,38 | 0,48 | 1,00 | 0,83 |
+| router | 0,77 | 0,55 | 0,33 | 0,54 | 0,63 | 1,00 | 0,83 |
 
 Atıf metrikleri (dev): atıf kesinliği baseline 0,37 · hybrid 0,47 · rerank 0,46 · structure 0,74 · metadata_filter 0,67; atıf recall'u 0,19 · 0,25 · 0,36 · 0,36 · 0,39.
 
@@ -187,6 +191,7 @@ Okuma notları:
 - Hiçbir retrieval adımı `hesaplama` sorularını çözmedi (0,00–0,11); `karsilastirma` 0,08'den 0,38'e çıktı. Bunlar T10'daki router'ın hedefi.
 - Gecikme cache isabetli sorular hariç ölçülür (baseline dev'de 84 sorunun 54'ü, metadata_filter'da 74'ü, diğerlerinde 79'u). Reranker arama süresine soru başına yaklaşık 1,4 s, metadata filtresi bir Haiku çağrısı ekliyor.
 - T9e (embedding'i `multilingual-e5-large` ile değiştirmek, opsiyonel) yapılmadı.
+- Router (T10): dev'de 9 hesaplama ve 13 karşılaştırma sorusunun hepsini agent yoluna, diğer 62 soruyu basit yola (`rerank` ile birebir aynı cevaplar) yolladı. Maliyet soru başına yaklaşık 3 kat (agent yolunda bir Sonnet çağrısı + alt soru başına Haiku). Router'ın dev gecikmesi diğer satırlarla karşılaştırılamaz: basit yoldaki cevaplar cache'ten geldiği için gecikme yalnızca 9 soruda ölçüldü (p50 25,0 s, ağırlıkla agent yolu). Agent yolundaki hataların kaynağı tek rakam çıkarma/normalizasyon adımı (ör. "3 trilyon 2 milyar" yazımı normalize edilemiyor, yanlış tanımlı oran seçiliyor).
 
 **Kullanıcının yapması gerekenler (şimdiye kadar birikenler):**
 - Gold set'i review arayüzünden doğrula: `uv sync --group ml --group app` sonra `uv run streamlit run scripts/review_app.py`. 243 taslak var; hedef 180 soru ve en az %35'i insan yazımı.
@@ -281,7 +286,7 @@ Her adım bir öncekinin üstüne eklenir ve dev'de ayrı bir run'dır:
 - Ara sonuç tablosu Sabah raporuna.
 
 ### Task T10 — Agent router (P1)
-- [ ] Tamamlandı
+- [x] Tamamlandı
 - LangGraph: sınıflandır (Haiku, yapılandırılmış) → basit sorular T9'un en iyi pipeline'ına; `karsilastirma`/`hesaplama` → ayrıştır (Sonnet) → alt soru başına retrieve + atıflı sayı çıkarımı (Haiku) → Python hesap → sentez (Haiku).
 - `router` ile T9'un en iyisini dev'de karşılaştır: tip bazında doğruluk, maliyet, gecikme.
 - **Commit:** `feat: add LangGraph router for comparison and calculation questions`
