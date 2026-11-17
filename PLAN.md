@@ -109,6 +109,11 @@ Sabah raporunu doldur.
 | 2026-11-17 | Gece oturumu Fable 5.2 orkestratör + `subagent-driven-development`; alt agent'lar varsayılan `opus`; `main`'de, worktree'siz | Kullanıcı tercihi; git dışı veri/.env/Docker volume worktree'de olmadığı için |
 | 2026-11-17 | CI: GitHub Actions (T0). Langfuse: JSONL trace'lerin sonradan aktarımı (T14, P2). LiteLLM ve LangChain şimdilik yok | Kullanıcı tercihi; ablation için pipeline adımları elle yazılı kalır; LiteLLM `claude_code` backend'ini desteklemiyor |
 | 2026-11-17 | T0 ortam kontrolü: `nvidia-smi` RTX 3050 Laptop 4 GB, sürücü 591.74, CUDA 13.1; `docker info` Server 27.5.1 (Docker Desktop); uv 0.13.9; Python 3.11.2; `claude -p "merhaba" --model claude-haiku-5-5` Türkçe cevap verdi, `ANTHROPIC_API_KEY` boş. torch: `ml` grubunda `pytorch-cu130` index'i yalnızca Windows/Linux'a marker'la bağlı (macOS PyPI'dan) → torch 2.14.1+cu130, `torch.cuda.is_available()` True. Build backend hatchling, `dev-mode-exact` + dev'de `editables` | cu130 sürücünün (CUDA 13.1) desteklediği en yeni PyTorch CUDA wheel'i; cu132 sürücü sürümünü aşıyor. Python 3.11 `.pth` dosyalarını yerel kodlamayla (cp1254) okuduğu için repo yolundaki `ş` düz editable kurulumu bozuyordu; exact mod yolu UTF-8 `.py` dosyasında tutuyor. uv'nin yönettiği Python 3.13 bu yolda kurulamadı (minor-version link hatası) |
+| 2026-11-17 | Gece oturumu başında Docker motoru kapalıydı; orkestratör Docker Desktop'ı başlattı. Uyku için uygulamanın keep-awake'i istendi (oturum boşta kalana kadar boşta uykuyu engeller; kapak kapanırsa uyur). | Engeller'de öngörülmüştü; T0/T4 için şart |
+| 2026-11-17 | Repo yolu ASCII dışı karakter (`ş`) içerdiği için Python 3.11 editable kurulumun `.pth` dosyasını okuyamıyor; build backend hatchling "exact" editable moduna alındı ve `editables` `dev` grubuna eklendi. | `import kaprag` başka türlü çalışmıyor; repo taşımak kullanıcının kararı. Bedeli: `uv sync --no-dev` ile paket import edilemez (bkz. Engeller) |
+| 2026-11-17 | README'deki ablation tablosu: `eval/README.md` §6 "README'ye yalnızca doğrulanmış alt kümenin sayıları girer" diyor, T12 ise "Taslak — doğrulanmamış gold set" uyarılı tablo istiyor. T12 izlenecek: tablo tüm-set sayılarıyla, uyarı altında ve "doğrulanmış alt kümeyle değiştirilecek" notuyla yazılacak. | Bu gece hiçbir soru doğrulanamaz (agent `verified` yapmaz); T12 tam bu durum için yazılmış açık talimat. Yanlışsa bedeli: kullanıcı bir tabloyu siler |
+| 2026-11-17 | T8 pipeline'ı metrikler için sıralı top-10 sonucu döndürür, üretim bağlamında top-5 kullanır. | T8 "top-5" diyor, `eval/README.md` §6 `recall@10`/`mrr@10` istiyor; ikisi birlikte ancak böyle ölçülür |
+| 2026-11-17 | T6'daki "hibrit aramayla kontrol" (eval §7 adım 5) için dense ve FTS arama ilkelleri T4'te yazılır; hibrit bir eval konfigürasyonu olarak T9a'da ölçülür. Kabul satırı olmayan görevlerde (T8–T13) kabul = testler yeşil + görevin adını verdiği run/çıktı mevcut. | Plan sırası T6'yı T9a'dan önce koyuyor; kabul ölçütü boş bırakılmış görevler için asgari ölçüt |
 
 ## Engeller
 
@@ -119,6 +124,7 @@ Sabah raporunu doldur.
 | 2026-11-17 | Docker Desktop'a ~7.6 GB RAM ayrılmış; Docker Desktop oturum açılışında otomatik başlamıyor olabilir (bugün kapalıydı). | Gece oturumundan önce Docker Desktop'ın açık olduğunu kontrol et. |
 | 2026-11-17 | `claude -p "merhaba"` başarısız: "OAuth session expired and could not be refreshed". CLI güncellendi (2.1.318), sorun sürüyor. `claude-agent-sdk` aynı girişi kullandığı için T1 ve tüm LLM adımları buna bağlı. | **Çözüldü (2026-11-17):** kullanıcı yeniden giriş yaptı; Haiku ile `claude -p` doğrulandı. |
 | 2026-11-17 | Uyku ayarı kontrol edilmedi. | Kullanıcı kontrol etmeli. |
+| 2026-11-17 | Repo yolundaki `ş` yüzünden paket yalnızca `dev` grubundaki `editables` ile import edilebiliyor; `uv sync --no-dev` (ör. ileride bir prod/Docker kurulumu) paketi import edilemez bırakır. uv'nin yönetilen Python 3.13'ü bu kullanıcı yolunda kurulamadı. | Engel değil, risk. Kalıcı çözüm kullanıcının kararı: repoyu ASCII bir yola taşımak ya da Python 3.13+. CI ve yerel geliştirme etkilenmiyor. |
 
 ## Sabah raporu
 
@@ -129,7 +135,7 @@ _(Gece oturumu doldurur: biten görevler, kalanlar, taslak ablation tablosu, kul
 Öncelik: **P0** sabaha kadar şart, **P1** olması beklenen, **P2** zaman kalırsa.
 
 ### Task T0 — Ortam ve iskelet (P0)
-- [ ] Tamamlandı
+- [x] Tamamlandı
 - Donanım ve araçları kontrol et (`nvidia-smi`, `docker info`, `uv`, `python`, `claude -p`); sonucu Karar günlüğüne yaz.
 - `pyproject.toml` (uv), `src/kaprag/`, `tests/`, `scripts/`, ruff ve pytest ayarları; CUDA'lı torch (CUDA sürümünü `nvidia-smi`'den oku).
 - `docker-compose.yml`: `pgvector/pgvector:pg17`, port 5432, isimli volume. `.env.example`'dan `.env` oluştur.
