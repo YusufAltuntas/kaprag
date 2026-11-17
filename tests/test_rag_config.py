@@ -100,3 +100,18 @@ def test_rerank_config_is_hybrid_plus_the_rerank_block():
     )
     assert parse_rag_config(rerank.pipeline.params).rerank.candidates == 40
     assert parse_rag_config(hybrid.pipeline.params).rerank is None
+
+
+def test_structure_config_is_rerank_on_the_structure_index():
+    rerank, structure = load_config("rerank"), load_config("structure")
+    assert structure.topic == "structure"
+    assert rerank.pipeline.params["index"] == "fixed"
+    assert structure.pipeline.params["index"] == "structure"
+    assert {k: v for k, v in structure.pipeline.params.items() if k != "index"} == {
+        k: v for k, v in rerank.pipeline.params.items() if k != "index"
+    }
+    assert structure.model_dump(exclude={"pipeline", "description", "topic"}) == rerank.model_dump(
+        exclude={"pipeline", "description", "topic"}
+    )
+    assert structure.pipeline.factory == rerank.pipeline.factory
+    assert parse_rag_config(structure.pipeline.params).index == "structure"
