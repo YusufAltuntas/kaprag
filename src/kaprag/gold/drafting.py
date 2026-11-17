@@ -200,7 +200,9 @@ def validate_draft(
         quote = f"{task.year}: {out.figure}; {task.year - 1}: {out.prior_figure} ({out.unit_text})"
         notes = "change computed in Python from the page's current and prior-year columns"
     if expected.unit in ("TL", "%") and out.type != "hesaplama" and out.basis is None:
-        notes = "basis (konsolide/solo) not stated on the page"
+        # spec §4 has the system answer with the consolidated figure; a figure of unknown
+        # basis may be solo, so it cannot be gold for an `answer` question
+        raise ValueError("money/ratio figure of unknown basis (page does not state it)")
     return Draft(
         key=f"{task.key}:{index}",
         source="page",

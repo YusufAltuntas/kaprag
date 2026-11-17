@@ -87,6 +87,29 @@ def select(pool: Sequence[Draft], quotas: Mapping[str, int], seed: int = SEED) -
     return list(chosen.values())
 
 
+def drop_probe_duplicates(
+    page_singles: Sequence[Draft], probes: Sequence[Draft]
+) -> tuple[list[Draft], list[tuple[Draft, str]]]:
+    """Remove page singles that state the same figure as a probe: same evidence page(s),
+    same normalised value and unit. The probe is kept because derived questions point at
+    it. Returns (kept, [(dropped draft, probe key)])."""
+
+    def fact(d: Draft) -> tuple:
+        pages = tuple(sorted((e.doc, e.page or 0) for e in d.evidence))
+        return pages, d.expected.value, d.expected.unit
+
+    by_fact = {fact(p): p.key for p in probes if p.expected.value is not None}
+    kept: list[Draft] = []
+    dropped: list[tuple[Draft, str]] = []
+    for d in page_singles:
+        key = by_fact.get(fact(d)) if d.expected.value is not None else None
+        if key is not None and d.type in ("tablo", "olgusal"):
+            dropped.append((d, key))
+        else:
+            kept.append(d)
+    return kept, dropped
+
+
 def _sort_key(d: Draft) -> tuple:
     return (QUESTION_TYPES.index(d.type), d.banks, d.years, d.key)
 

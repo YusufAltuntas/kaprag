@@ -92,15 +92,22 @@ def build_prompt(
     )
 
 
-def verdict_reason(item: CheckItem | None) -> str | None:
-    """None when the item passes, else the drop reason."""
+def needs_figure_check(draft: Draft) -> bool:
+    """Numeric drafts pass only with an explicit positive figure verdict."""
+    return draft.expected.value is not None or draft.type == "hesaplama"
+
+
+def verdict_reason(item: CheckItem | None, numeric: bool = False) -> str | None:
+    """None when the item passes, else the drop reason. For a `numeric` draft,
+    `figure_ok` must be True (null means unit and normalisation were never checked)."""
     if item is None:
         return "no check verdict"
+    figure_ok = item.figure_ok is True if numeric else item.figure_ok is not False
     failed = [
         name
         for name, ok in (
             ("supported", item.supported),
-            ("figure_ok", item.figure_ok is not False),
+            ("figure_ok", figure_ok),
             ("basis_ok", item.basis_ok),
             ("self_contained", item.self_contained),
         )
@@ -120,7 +127,10 @@ def apply_check(
     passed: list[Draft] = []
     dropped: list[tuple[Draft, str]] = []
     for i, d in enumerate(drafts):
-        reason = verdict_reason(by_index.get(i)) if check is not None else "check call failed"
+        if check is None:
+            reason = "check call failed"
+        else:
+            reason = verdict_reason(by_index.get(i), needs_figure_check(d))
         if reason is None:
             passed.append(d.model_copy(update={"llm_checked": True}))
         else:

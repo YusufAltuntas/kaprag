@@ -301,3 +301,106 @@ def test_check_prompt_explains_count_metrics_have_no_basis(page):
         update={"source": "probe", "metric": "branches"}
     )
     assert "Adet metriği" in build_prompt("akbank", 2024, [(3, text)], [d])
+
+
+# --- fix round 1: unknown basis, figure check required -----------------------------------
+
+
+def test_unknown_basis_money_and_ratio_singles_are_dropped(page):
+    text, numbers = page
+    q = "Akbank 2024 yılında ne kadar net kâr elde etti?"
+    with pytest.raises(ValueError, match="unknown basis"):
+        validate_draft(out(basis=None, question=q), TASK, 0, text, numbers)
+    ratio = out(
+        basis=None,
+        figure="17,30",
+        unit_text="%",
+        value=17.3,
+        unit="%",
+        question="Akbank'ın 2024 sermaye yeterliliği oranı yüzde kaçtı?",
+    )
+    with pytest.raises(ValueError, match="unknown basis"):
+        validate_draft(ratio, TASK, 0, text, numbers)
+    olgusal = out(type="olgusal", basis=None, question=q)
+    with pytest.raises(ValueError, match="unknown basis"):
+        validate_draft(olgusal, TASK, 0, text, numbers)
+
+
+def test_unknown_basis_count_single_is_kept(tmp_dir):
+    pages = DocPages.load("akbank-2024", write_parsed(tmp_dir, "akbank-2024"))
+    page_text, numbers = pages.render(3), pages.numbers(3) | {Decimal(694)}
+    count = out(
+        type="olgusal",
+        basis=None,
+        figure="694",
+        unit_text="şube",
+        value=694,
+        unit="adet",
+        question="Akbank 2024 sonunda kaç şubeyle çalışıyordu?",
+    )
+    d = validate_draft(count, TASK, 0, page_text, numbers)
+    assert d.basis is None and d.expected.value == 694 and d.expected.unit == "adet"
+
+
+def test_validate_page_logs_unknown_basis_drop(page):
+    text, numbers = page
+    task = PageTask("akbank-2024", "akbank", 2024, 3, {"tablo": 2})
+    result = PageDrafts(
+        questions=[out(basis=None, question="Akbank 2024 yılında ne kadar net kâr etti?")]
+    )
+    drafts, drops = validate_page(result, task, text, numbers)
+    assert drafts == [] and "unknown basis" in drops[0][1]
+
+
+@pytest.mark.parametrize("figure_ok", [None, False])
+def test_numeric_draft_needs_a_positive_figure_check(page, figure_ok):
+    text, numbers = page
+    d = validate_draft(out(), TASK, 0, text, numbers)
+    check = PageCheck(
+        items=[
+            CheckItem(
+                index=0,
+                supported=True,
+                figure_ok=figure_ok,
+                basis_ok=True,
+                self_contained=True,
+                reason="r",
+            )
+        ]
+    )
+    passed, dropped = apply_check([d], check)
+    assert passed == [] and "figure_ok" in dropped[0][1]
+
+
+def test_text_draft_passes_with_null_figure_check(page):
+    text, numbers = page
+    d = validate_draft(
+        out(
+            type="olgusal",
+            basis=None,
+            figure=None,
+            unit_text=None,
+            value=None,
+            unit=None,
+            question="Akbank 2024'te hangi alanda yeni ürünler geliştirdi?",
+            answer="...",
+        ),
+        TASK,
+        0,
+        text,
+        numbers,
+    )
+    check = PageCheck(
+        items=[
+            CheckItem(
+                index=0,
+                supported=True,
+                figure_ok=None,
+                basis_ok=True,
+                self_contained=True,
+                reason="r",
+            )
+        ]
+    )
+    passed, _ = apply_check([d], check)
+    assert len(passed) == 1 and passed[0].llm_checked

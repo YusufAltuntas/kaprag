@@ -146,9 +146,9 @@ def validate_probe(
     if unit != metric.unit:
         raise ValueError(f"unit {unit} is not the metric's unit {metric.unit}")
     basis = out.basis if metric.needs_basis else None
-    notes = "probe fact"
     if metric.needs_basis and basis is None:
-        notes += "; basis (konsolide/solo) not stated in the passage - not used in comparisons"
+        raise ValueError("money/ratio figure of unknown basis (passage does not state it)")
+    notes = "probe fact"
     return Draft(
         key=f"probe:{doc_id}:{metric.id}",
         source="probe",

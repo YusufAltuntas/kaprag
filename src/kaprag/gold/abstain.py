@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from kaprag.eval.schema import YEAR_MAX, YEAR_MIN, Evidence, Expected
 from kaprag.gold.derive import format_value
-from kaprag.gold.draft import BANK_NAMES, Draft
+from kaprag.gold.draft import BANK_NAMES, Draft, fold
 from kaprag.gold.text import banks_mentioned, years_mentioned
 from kaprag.retrieval import SearchHit
 
@@ -174,8 +174,18 @@ def to_draft(
         years=sorted(set(out.years)),
         basis=None,
         expected_behavior="abstain",
-        expected=Expected(answer=f"{label}: {out.why}", value=None, unit=None, tolerance=None),
+        expected=Expected(
+            answer=f"{label}: {_strip_label(out.why, label)}", value=None, unit=None, tolerance=None
+        ),
         evidence=evidence,
         llm_checked=True,
         notes=f"abstain kind: {out.kind}; corpus check: {verdict.verdict} - {verdict.reason}",
     )
+
+
+def _strip_label(why: str, label: str) -> str:
+    """The model's reason without a leading copy of the kind label ('Yanlış öncül: ...')."""
+    why = why.strip()
+    if fold(why).startswith(fold(label)):
+        why = why[len(label) :].lstrip(" :-–—").strip()
+    return why

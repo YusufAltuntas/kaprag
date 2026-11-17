@@ -19,7 +19,7 @@ from typing import Any
 from kaprag.corpus import Document
 from kaprag.eval.schema import save_questions
 from kaprag.gold import abstain, ambiguous, checking, drafting, probes
-from kaprag.gold.assemble import DEFAULT_QUOTAS, PILOT_SIZE, assemble
+from kaprag.gold.assemble import DEFAULT_QUOTAS, PILOT_SIZE, assemble, drop_probe_duplicates
 from kaprag.gold.derive import compose_from_probes
 from kaprag.gold.draft import Draft, write_drafts
 from kaprag.gold.figures import FigureError
@@ -146,15 +146,24 @@ class Pipeline:
 
     # --- step 4: probes and derived questions -------------------------------------------
 
+    def _search(self, stage: str, key: str, query: str, doc_ids, k: int) -> list | None:
+        """Search hits, or None (logged as a failure) when the search itself fails."""
+        try:
+            return self.searcher.search(query, doc_ids, k=k)
+        except Exception as exc:  # any search error must not abort the run
+            self.log.fail(stage, key, f"{type(exc).__name__}: {exc}")
+            return None
+
     def _retrieve(self, doc: Document) -> list:
-        hits = {
-            m.id: self.searcher.search(
-                probes.metric_query(m, doc.bank, doc.year),
-                [doc.doc_id],
-                k=probes.PASSAGES_PER_METRIC,
-            )
-            for m in self.cfg.metrics
-        }
+        hits = {}
+        for m in self.cfg.metrics:
+            query = probes.metric_query(m, doc.bank, doc.year)
+            found = self._search(
+                "probe_search", f"probe:{doc.doc_id}:{m.id}", query, [doc.doc_id],
+                probes.PASSAGES_PER_METRIC,
+            )  # fmt: skip
+            if found is not None:
+                hits[m.id] = found
         return probes.collect_passages(hits)
 
     async def _probe_doc(self, doc: Document, passages: list) -> list[Draft]:
@@ -276,7 +285,12 @@ class Pipeline:
             except ValueError as exc:
                 self.log.drop("abstain_validation", ckey, str(exc), out)
                 continue
-            hits = self.searcher.search(out.question, abstain.doc_filter(out), k=abstain.PASSAGES)
+            hits = self._search(
+                "abstain_search", ckey, out.question, abstain.doc_filter(out), abstain.PASSAGES
+            )
+            if hits is None:  # an abstain draft whose corpus check could not run is not kept
+                self.log.drop("abstain_search", ckey, "corpus search failed", out)
+                continue
             candidates.append((ckey, out, hits))
         size = max(1, self.cfg.abstain_batch)
         batches = [candidates[i : i + size] for i in range(0, len(candidates), size)]
@@ -326,6 +340,9 @@ class Pipeline:
         tasks = self.sample()
         page_singles = await self.draft_pages(tasks)
         probe_singles, derived = await self.probe()
+        page_singles, duplicates = drop_probe_duplicates(page_singles, probe_singles)
+        for d, probe_key in duplicates:
+            self.log.drop("dedup", d.key, f"same figure and page as {probe_key}", d)
         abstained = await self.abstain(probe_singles)
         ambiguous_drafts = await self.ambiguous(probe_singles + page_singles)
         pool = page_singles + probe_singles + derived + abstained + ambiguous_drafts

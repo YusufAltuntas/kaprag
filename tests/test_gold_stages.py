@@ -278,3 +278,43 @@ def test_ambiguous_prefers_probe_sources():
     probe = single("probe1")
     tasks = select_sources([page, probe], per_kind=1)
     assert tasks[0].source.key == "probe1"
+
+
+# --- fix round 1 ---------------------------------------------------------------------------
+
+
+def test_probe_with_unknown_basis_on_money_metric_is_dropped(tmp_dir):
+    pages = DocPages.load("akbank-2024", write_parsed(tmp_dir, "akbank-2024"))
+    with pytest.raises(ValueError, match="unknown basis"):
+        validate_probe(
+            probe_out(basis=None),
+            METRICS_BY_ID["net_profit"],
+            "akbank-2024",
+            "akbank",
+            2024,
+            [hit("c1")],
+            pages,
+        )
+
+
+def test_abstain_answer_does_not_repeat_the_label():
+    premise = abstain_out(
+        kind="yanlis_oncul", banks=["akbank"], why="Yanlış öncül: Akbank 2024'te kâr etti."
+    )
+    v = AbstainVerdict(index=0, verdict="false_premise", evidence_passages=[], reason="")
+    assert to_draft("k", premise, v, []).expected.answer == (
+        "Yanlış öncül: Akbank 2024'te kâr etti."
+    )
+
+
+def test_page_single_duplicating_a_probe_is_removed():
+    from kaprag.gold.assemble import drop_probe_duplicates
+
+    probe = single("probe:akbank-2024:net_profit")
+    same = single("page:akbank-2024:5:0").model_copy(update={"source": "page"})
+    other_page = same.model_copy(
+        update={"key": "page:x", "evidence": [Evidence(doc="akbank-2024", page=6)]}
+    )
+    kept, dropped = drop_probe_duplicates([same, other_page], [probe])
+    assert [d.key for d in kept] == ["page:x"]
+    assert [(d.key, k) for d, k in dropped] == [("page:akbank-2024:5:0", probe.key)]

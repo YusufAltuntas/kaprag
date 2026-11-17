@@ -146,12 +146,18 @@ def abstain_reply(user, schema):
 
 
 def judge_reply(user, schema):
-    return {
-        "items": [
-            {"index": 0, "verdict": "not_in_corpus", "evidence_passages": [], "reason": "yok"},
-            {"index": 1, "verdict": "false_premise", "evidence_passages": [1], "reason": "kâr"},
-        ]
-    }
+    items = []
+    for i, question in re.findall(r"^### Soru (\d+): (.*)$", user, flags=re.M):
+        premise = "zarar" in question
+        items.append(
+            {
+                "index": int(i),
+                "verdict": "false_premise" if premise else "not_in_corpus",
+                "evidence_passages": [1] if premise else [],
+                "reason": "kâr" if premise else "yok",
+            }
+        )
+    return {"items": items}
 
 
 def ambiguous_reply(user, schema):
@@ -168,7 +174,10 @@ def ambiguous_reply(user, schema):
     return {"items": items}
 
 
-def test_pipeline_end_to_end(tmp_dir):
+HITS = [SearchHit(f"{d}:c", d, 3, 3, 1.0, "text", (), "t") for d in ("akbank-2024", "isbank-2024")]
+
+
+def run_pipeline(tmp_dir, searcher):
     parsed = tmp_dir / "parsed"
     for doc in ("akbank-2024", "isbank-2024"):
         write_parsed(parsed, doc)
@@ -184,9 +193,6 @@ def test_pipeline_end_to_end(tmp_dir):
             "ambiguous": ambiguous_reply,
         }
     )
-    hits = [
-        SearchHit(f"{d}:c", d, 3, 3, 1.0, "text", (), "t") for d in ("akbank-2024", "isbank-2024")
-    ]
     run_dir, out = tmp_dir / "run", tmp_dir / "gold" / "questions.jsonl"
     cfg = RunConfig(
         run_dir=run_dir,
@@ -209,7 +215,12 @@ def test_pipeline_end_to_end(tmp_dir):
         pilot=3,
         parsed_dir=parsed,
     )
-    summary = asyncio.run(Pipeline(cfg, client, lambda: FakeSearcher(hits)).run())
+    summary = asyncio.run(Pipeline(cfg, client, lambda: searcher).run())
+    return summary, run_dir, out
+
+
+def test_pipeline_end_to_end(tmp_dir):
+    summary, run_dir, out = run_pipeline(tmp_dir, FakeSearcher(HITS))
 
     questions = load_questions(out)
     types = {q.type for q in questions}
@@ -220,12 +231,15 @@ def test_pipeline_end_to_end(tmp_dir):
     assert all(set(q.derived_from) <= ids for q in questions)
     gap = next(q for q in questions if q.type == "hesaplama" and len(q.banks) == 2)
     assert gap.expected.value == 18.66  # Akbank 45.2103 bn vs İş Bankası 38.1 bn
-    assert sum(q.pilot for q in questions) == 3
+    dev = sum(q.split == "dev" for q in questions)
+    assert sum(q.pilot for q in questions) == min(3, dev)
+    assert all(q.split == "dev" for q in questions if q.pilot)
 
     counts = summary["counts"]
     assert counts["failures_by_stage"] == {"draft": 1}  # one page failed; run went on
     assert counts["drops_by_stage"]["draft_validation"] == 2
     assert counts["drops_by_stage"]["abstain_validation"] == 1
+    assert counts["drops_by_stage"]["dedup"] == 1  # Akbank page net profit == its probe
     for name in (
         "pages.jsonl",
         "page_drafts.jsonl",
@@ -246,3 +260,33 @@ def test_pipeline_end_to_end(tmp_dir):
         if line
     ]
     assert any("not found on the page" in d["reason"] for d in drops)
+
+
+class FailingSearcher(FakeSearcher):
+    """Fails for whole-corpus queries and for isbank-2024 probe queries."""
+
+    def search(self, query, doc_ids=None, k=8):
+        if doc_ids is None or doc_ids == ["isbank-2024"]:
+            raise RuntimeError("database went away")
+        return super().search(query, doc_ids, k)
+
+
+def test_search_failure_is_logged_and_the_run_continues(tmp_dir):
+    summary, run_dir, out = run_pipeline(tmp_dir, FailingSearcher(HITS))
+    failures = [
+        json.loads(x) for x in (run_dir / "failures.jsonl").read_text("utf-8").split("\n") if x
+    ]
+    search_failures = [f for f in failures if f["stage"].endswith("search")]
+    assert {f["stage"] for f in search_failures} == {"probe_search", "abstain_search"}
+    assert all("database went away" in f["error"] for f in search_failures)
+    questions = load_questions(out)
+    assert not any("Ziraat" in q.question for q in questions)  # its corpus check never ran
+    assert any("zarar" in q.question for q in questions)  # bank-filtered search still worked
+    assert not any(
+        q.banks == ["isbank"]
+        and q.type == "tablo"
+        and q.derived_from == []
+        and "net kâr elde" in q.question
+        and q.notes.startswith("probe")
+        for q in questions
+    )
