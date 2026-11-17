@@ -2,7 +2,7 @@
 
 Both return the top-k `SearchHit`s best first; `SearchHit.to_retrieved_item()` gives
 the eval harness's `RetrievedItem`. `rrf_fuse` merges ranked lists (reciprocal rank
-fusion); building a hybrid pipeline around it and reranking are later steps.
+fusion); the hybrid retrieval mode around it lives in `kaprag.rag.retriever`.
 
 Filters: both functions take an optional `where` SQL condition (a `psycopg.sql`
 Composable, e.g. `sql.SQL("bank = {}").format(sql.Literal("akbank"))`). It is ANDed
@@ -13,7 +13,8 @@ enable pgvector's `hnsw.iterative_scan` or raise ef_search.)
 
 Dense: cosine distance via `<=>` on normalised vectors, score = 1 - distance (cosine
 similarity). `hnsw.ef_search` is raised to k for the query when k > 40 so the index
-can return k rows.
+can return k rows (HNSW yields at most ef_search rows); the setting is local to the
+query's transaction, so it works on autocommit connections and never leaks.
 
 Full-text: a plain AND of all question terms (`plainto_tsquery`) matches almost no
 chunk for a natural-language question, so the query is the OR of the question's
@@ -71,18 +72,22 @@ def dense_search(
     as the index; see `kaprag.index.embed.Embedder.embed_query`). `conn` needs the
     vector adapter (`kaprag.index.store.connect`)."""
     vector = Vector(query_embedding)
-    if k > DEFAULT_HNSW_EF_SEARCH:
-        conn.execute("SELECT set_config('hnsw.ef_search', %s, true)", (str(k),))
-    return _search(
-        conn,
-        variant,
-        score=sql.SQL("1 - (embedding <=> %(q)s)"),
-        match=None,
-        order=sql.SQL("embedding <=> %(q)s"),
-        params={"q": vector},
-        k=k,
-        where=where,
-    )
+    # `set_config(..., true)` is transaction-local: on an autocommit connection each
+    # statement is its own transaction, so the setting and the query share an explicit
+    # one (a savepoint when a transaction is already open).
+    with conn.transaction():
+        if k > DEFAULT_HNSW_EF_SEARCH:
+            conn.execute("SELECT set_config('hnsw.ef_search', %s, true)", (str(k),))
+        return _search(
+            conn,
+            variant,
+            score=sql.SQL("1 - (embedding <=> %(q)s)"),
+            match=None,
+            order=sql.SQL("embedding <=> %(q)s"),
+            params={"q": vector},
+            k=k,
+            where=where,
+        )
 
 
 def fts_search(

@@ -1,0 +1,23 @@
+# T9a: the baseline with hybrid retrieval - dense + Turkish full-text search fused by RRF.
+# Every ablation is a copy of the previous config with one block changed (see kaprag.rag.config).
+description: "Hybrid RAG - fixed chunks, dense bge-m3 + Turkish FTS fused by RRF (k=60, top-40 per arm), top-5 context, claude-haiku-5-5 generation"
+topic: hybrid
+pipeline:
+  factory: rag
+  params:
+    index: fixed
+    retrieval:
+      mode: hybrid
+      candidates_per_arm: 40
+      rrf_k: 60
+    retrieve_k: 10
+    context_k: 5
+    generation:
+      model: claude-haiku-5-5
+    embedding:
+      model: BAAI/bge-m3
+      device: cuda
+judge:
+  kind: llm
+  model: claude-sonnet-5-5
+concurrency: 4

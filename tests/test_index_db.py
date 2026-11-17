@@ -7,7 +7,7 @@ from psycopg import sql
 from kaprag.chunking.base import Chunk
 from kaprag.corpus import Document
 from kaprag.index.store import EMBEDDING_DIM, connect, ensure_schema, replace_document, row_counts
-from kaprag.retrieval import dense_search, fts_search
+from kaprag.retrieval import DEFAULT_HNSW_EF_SEARCH, dense_search, fts_search
 
 pytestmark = pytest.mark.db
 
@@ -182,3 +182,21 @@ def test_where_condition_applies_before_ranking(conn):
     assert [h.doc_id for h in dense_search(conn, "fixed", one_hot(1), where=where)] == [
         "akbank-2023"
     ]
+
+
+def test_dense_search_returns_more_than_the_default_ef_search_on_autocommit(conn):
+    # pgvector's HNSW scan yields at most `hnsw.ef_search` (default 40) rows; the raised
+    # value must reach the query on a long-lived autocommit connection too.
+    a = doc("akbank-2023")
+    n = DEFAULT_HNSW_EF_SEARCH + 20
+    chunks = [chunk(a.doc_id, i, f"t{i}") for i in range(n)]
+    vectors = [one_hot(i % EMBEDDING_DIM, 1.0) for i in range(n)]
+    for i, v in enumerate(vectors):
+        v[(i + 1) % EMBEDDING_DIM] = 0.5
+    replace_document(conn, "fixed", a, chunks, vectors)
+    conn.commit()
+    conn.autocommit = True
+    conn.execute("SET enable_seqscan = off")  # force the HNSW index on this tiny table
+    hits = dense_search(conn, "fixed", one_hot(0), k=n - 5)
+    assert len(hits) == n - 5
+    assert conn.execute("SHOW hnsw.ef_search").fetchone()[0] == str(DEFAULT_HNSW_EF_SEARCH)

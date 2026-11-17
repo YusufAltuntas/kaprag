@@ -19,6 +19,29 @@ def test_baseline_config_values():
     assert (rag.retrieve_k, rag.context_k) == (10, 5)
     assert rag.generation.model == "claude-haiku-5-5"
     assert (rag.embedding.model, rag.embedding.device) == ("BAAI/bge-m3", "cuda")
+    assert cfg.pipeline.params["retrieval"] == {"mode": "dense"}  # nothing new in the baseline
+
+
+def test_hybrid_config_is_the_baseline_with_only_the_retrieval_block_changed():
+    baseline, hybrid = load_config("baseline"), load_config("hybrid")
+    assert hybrid.topic == "hybrid"
+    assert hybrid.pipeline.params["retrieval"] == {
+        "mode": "hybrid",
+        "candidates_per_arm": 40,
+        "rrf_k": 60,
+    }
+    assert {k: v for k, v in hybrid.pipeline.params.items() if k != "retrieval"} == {
+        k: v for k, v in baseline.pipeline.params.items() if k != "retrieval"
+    }
+    assert hybrid.model_dump(exclude={"pipeline", "description", "topic"}) == baseline.model_dump(
+        exclude={"pipeline", "description", "topic"}
+    )
+    rag = parse_rag_config(hybrid.pipeline.params)
+    assert (rag.retrieval.mode, rag.retrieval.candidates_per_arm, rag.retrieval.rrf_k) == (
+        "hybrid",
+        40,
+        60,
+    )
 
 
 def test_defaults_need_only_the_index():
@@ -34,7 +57,17 @@ def test_defaults_need_only_the_index():
 @pytest.mark.parametrize(
     ("params", "message"),
     [
-        ({"index": "fixed", "retrieval": {"mode": "hybrid"}}, "unknown retrieval mode 'hybrid'"),
+        ({"index": "fixed", "retrieval": {"mode": "sparse"}}, "unknown retrieval mode 'sparse'"),
+        (
+            {"index": "fixed", "retrieval": {"mode": "dense", "candidates_per_arm": 40}},
+            "only apply to retrieval mode 'hybrid'",
+        ),
+        ({"index": "fixed", "retrieval": {"mode": "hybrid", "fusion": "rrf"}}, "fusion"),
+        (
+            {"index": "fixed", "retrieval": {"mode": "hybrid", "candidates_per_arm": 0}},
+            "candidates_per_arm",
+        ),
+        ({"index": "fixed", "retrieval": {"mode": "hybrid", "rrf_k": -1}}, "rrf_k"),
         ({"index": "chunks"}, "index"),
         ({}, "index"),
         ({"index": "fixed", "context_k": 11}, "context_k"),

@@ -13,6 +13,7 @@ from kaprag.llm.types import BackendResponse
 from kaprag.rag.config import parse_rag_config
 from kaprag.rag.generate import SYSTEM_PROMPT
 from kaprag.rag.pipeline import RagPipeline
+from kaprag.rag.retriever import RankedChunk
 
 TAGS = {"run": "r1", "qid": "q007", "role": "pipeline"}
 
@@ -32,8 +33,9 @@ def items(n):
 
 
 class FakeRetriever:
-    def __init__(self, n=12):
+    def __init__(self, n=12, traces=None):
         self.items = items(n)
+        self.traces = traces or [{} for _ in self.items]
         self.calls = []
         self.closed = False
         self.thread = None
@@ -41,7 +43,8 @@ class FakeRetriever:
     def retrieve(self, question, k):
         self.calls.append((question, k))
         self.thread = threading.current_thread()
-        return self.items[:k]
+        ranked = [RankedChunk(i, t) for i, t in zip(self.items, self.traces, strict=True)]
+        return ranked[:k]
 
     def close(self):
         self.closed = True
@@ -105,6 +108,7 @@ def test_returns_retrieve_k_ranked_items_and_generates_from_context_k(tmp_dir):
     assert answer.citations == [Citation(doc="akbank-2024", page=12)]  # source 9 dropped
     assert output.debug["dropped_citations"] == [9]
     assert output.debug["context_chunk_ids"] == [i.chunk_id for i in items(5)]
+    assert "retrieval_trace" not in output.debug  # dense: no per-stage ranks to record
 
 
 def test_llm_call_carries_the_runner_tags(tmp_dir):
@@ -150,3 +154,13 @@ def test_numeric_value_is_rejected_then_retried_then_surfaced(tmp_dir):
 def test_prompt_states_citation_and_basis_rules():
     assert "reddettiğin" in SYSTEM_PROMPT  # cite only supporting sources, not rejected ones
     assert "varsaydıysan" in SYSTEM_PROMPT  # an assumed consolidated figure sets `basis`
+
+
+def test_retrieval_trace_records_each_returned_item(tmp_dir):
+    traces = [{"dense_rank": i, "fts_rank": None} for i in range(1, 13)]
+    pipeline, _, _ = make(tmp_dir, [REPLY], retriever=FakeRetriever(traces=traces))
+    output = asyncio.run(pipeline.run("soru", tags=dict(TAGS)))
+    assert output.debug["retrieval_trace"] == [
+        {"chunk_id": item.chunk_id, "dense_rank": i, "fts_rank": None}
+        for i, item in enumerate(items(10), start=1)
+    ]

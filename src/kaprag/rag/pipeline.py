@@ -5,6 +5,8 @@ params (see `kaprag.rag.config`). Per question:
 
 1. Retrieve the top `retrieve_k` chunks (in a worker thread; the retriever serialises
    its own GPU/DB work). This ranked list is what the harness scores for retrieval.
+   When the retrieval stages record per-item ranks (hybrid arms, reranking), they go
+   to `debug["retrieval_trace"]`, one entry per returned chunk, best first.
 2. Put the first `context_k` of them into the prompt as sources `[1]..[context_k]`.
 3. One schema-validated LLM call tagged `{**tags, "step": "generate"}`. A failure
    (`LLMCallError`) propagates, so the runner records the question as an error.
@@ -35,9 +37,8 @@ class RagPipeline:
         self.llm = llm
 
     async def run(self, question: str, *, tags: dict[str, Any]) -> PipelineOutput:
-        retrieved = await asyncio.to_thread(
-            self.retriever.retrieve, question, self.config.retrieve_k
-        )
+        ranked = await asyncio.to_thread(self.retriever.retrieve, question, self.config.retrieve_k)
+        retrieved = [r.item for r in ranked]
         sources = retrieved[: self.config.context_k]
         generated = await generate(
             self.llm(),
@@ -47,10 +48,19 @@ class RagPipeline:
             tags=tags,
         )
         answer, debug = build_answer(generated, sources)
+        retrieval_debug = {}
+        if any(r.trace for r in ranked):
+            retrieval_debug["retrieval_trace"] = [
+                {"chunk_id": r.item.chunk_id, **r.trace} for r in ranked
+            ]
         return PipelineOutput(
             answer=answer,
             retrieved=retrieved,
-            debug={"context_chunk_ids": [s.chunk_id for s in sources], **debug},
+            debug={
+                "context_chunk_ids": [s.chunk_id for s in sources],
+                **retrieval_debug,
+                **debug,
+            },
         )
 
     async def aclose(self) -> None:
