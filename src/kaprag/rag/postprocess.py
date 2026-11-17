@@ -1,30 +1,28 @@
 """Model output -> the section 5 `SystemAnswer` (eval/README.md), deterministically.
 
-- Citations: the model cites source numbers (`citations` plus `[n]` markers in the
-  answer text, first occurrence order). Each valid number becomes one `{doc, page}`
-  per page of that chunk's `page_start..page_end` span; duplicates are removed;
-  numbers outside `1..len(sources)` are dropped and reported.
+- Citations: only the model's `citations` field (the sources it declares as
+  supporting the answer); `[n]` markers in the answer text are not harvested, since
+  answers also mention sources to rule them out. Each valid number becomes one
+  `{doc, page}` per page of that chunk's `page_start..page_end` span; duplicates are
+  removed; numbers outside `1..len(sources)` are dropped and reported.
 - Numbers: the value as printed plus a unit with its scale word are normalised with
   `kaprag.eval.numeric` to canonical units (integer TL, %, adet). When that fails the
   answer text is kept, `value`/`unit` become null and the reason is reported. A value
   is never invented.
-- An abstention or a clarification request carries no value.
+- An abstention or a clarification request carries no value and no citations.
 
 `build_answer` returns `(answer, debug)`; `debug` goes to the run's traces.
 """
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterable, Sequence
 from typing import Any
 
 from kaprag.eval.answer import Citation, SystemAnswer
-from kaprag.eval.numeric import NumericParseError, normalize, parse_quantity, to_json_number
+from kaprag.eval.numeric import NumericParseError, parse_quantity, to_json_number
 from kaprag.eval.pipeline import RetrievedItem
 from kaprag.rag.generate import GeneratedAnswer
-
-_MARKER = re.compile(r"\[(\d+)\]")
 
 
 def map_citations(
@@ -48,40 +46,34 @@ def map_citations(
 
 
 def normalize_value(
-    value: str | float | int | None, unit: str | None
+    value: str | None, unit: str | None
 ) -> tuple[tuple[int | float | None, str | None], str | None]:
     """((value, canonical unit), error). `((None, None), None)` when there is no value.
 
-    A string value may carry its own unit marks (`%18,2`); it is parsed together with
-    `unit` as one quantity, so exactly one number must appear in the two.
+    The value (as printed) is parsed together with `unit` as one quantity, so a `%`
+    inside the value works (`%18,2`), while two numbers or two scale words (`"45,2
+    milyar TL"` + `"milyar TL"`) fail.
     """
-    if value is None or (isinstance(value, str) and not value.strip()):
+    if value is None or not value.strip():
         return (None, None), None
     try:
-        if isinstance(value, str):
-            quantity = parse_quantity(f"{value} {unit or ''}")
-        else:
-            quantity = normalize(value, unit)
+        quantity = parse_quantity(f"{value} {unit or ''}")
     except NumericParseError as exc:
         return (None, None), str(exc)
     return (to_json_number(quantity.value), quantity.unit), None
 
 
-def _cited_numbers(generated: GeneratedAnswer) -> list[int]:
-    markers = [int(m) for m in _MARKER.findall(generated.answer)]
-    return list(dict.fromkeys([*generated.citations, *markers]))
-
-
 def build_answer(
     generated: GeneratedAnswer, sources: Sequence[RetrievedItem]
 ) -> tuple[SystemAnswer, dict[str, Any]]:
-    cited = _cited_numbers(generated)
-    citations, dropped = map_citations(cited, sources)
     clarification = (generated.clarification or "").strip() or None
+    answering = not generated.abstained and clarification is None
+    cited = list(dict.fromkeys(generated.citations)) if answering else []
+    citations, dropped = map_citations(cited, sources)
 
     error = None
     value = unit = None
-    if not generated.abstained and clarification is None:
+    if answering:
         (value, unit), error = normalize_value(generated.value, generated.unit)
 
     answer = SystemAnswer(

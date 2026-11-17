@@ -1,6 +1,9 @@
 """RAG post-processing: cited source numbers -> {doc, page}; value/unit -> canonical units."""
 
+import json
+
 import pytest
+from pydantic import ValidationError
 
 from kaprag.eval.answer import Citation, SystemAnswer
 from kaprag.eval.pipeline import RetrievedItem
@@ -43,21 +46,34 @@ def test_map_citations_empty():
     assert map_citations([1], []) == ([], [1])
 
 
-def test_build_answer_also_reads_markers_in_the_answer_text():
-    answer, debug = build_answer(gen(answer="Kâr arttı [3] ve [1].", citations=[3]), SOURCES)
-    assert answer.citations == [
-        Citation(doc="garanti-2025", page=50),
-        Citation(doc="akbank-2024", page=87),
-        Citation(doc="akbank-2024", page=88),
-    ]
-    assert debug["cited_sources"] == [3, 1]
+def test_build_answer_ignores_markers_in_the_answer_text():
+    generated = gen(answer="Kâr arttı [3]; [1] ise ilgisiz.", citations=[3])
+    answer, debug = build_answer(generated, SOURCES)
+    assert answer.citations == [Citation(doc="garanti-2025", page=50)]
+    assert debug["cited_sources"] == [3]
     assert debug["dropped_citations"] == []
 
 
 def test_build_answer_records_dropped_citations():
     answer, debug = build_answer(gen(answer="Bkz. [7].", citations=[2, 5]), SOURCES)
     assert answer.citations == [Citation(doc="akbank-2024", page=88)]
-    assert debug["dropped_citations"] == [5, 7]
+    assert debug["dropped_citations"] == [5]
+
+
+def test_abstention_carries_no_citations():
+    answer, debug = build_answer(
+        gen(answer="[1] ve [2] bunu içermiyor.", abstained=True, citations=[1, 2]), SOURCES
+    )
+    assert answer.abstained is True
+    assert answer.citations == []
+    assert debug["cited_sources"] == []
+
+
+def test_clarification_carries_no_citations():
+    answer, _ = build_answer(
+        gen(answer="Hangi yıl?", clarification="Hangi yıl?", citations=[1]), SOURCES
+    )
+    assert answer.citations == []
 
 
 # --- numbers ---------------------------------------------------------------
@@ -67,14 +83,14 @@ def test_build_answer_records_dropped_citations():
     ("value", "unit", "expected"),
     [
         ("45,2", "milyar TL", (45_200_000_000, "TL")),
-        (45.2, "milyar TL", (45_200_000_000, "TL")),
+        ("2.202", "milyar TL", (2_202_000_000_000, "TL")),
         ("1.234.567", "bin TL", (1_234_567_000, "TL")),
         ("(1.234)", "Bin TL", (-1_234_000, "TL")),
         ("18,2", "%", (18.2, "%")),
         ("%18,2", None, (18.2, "%")),
         ("12,5", "yüzde", (12.5, "%")),
         ("700", "şube", (700, "adet")),
-        (12900, "adet", (12900, "adet")),
+        ("12.900", "adet", (12900, "adet")),
         ("1,5", "trilyon TL", (1_500_000_000_000, "TL")),
         ("3.450", None, (3450, None)),
     ],
@@ -93,12 +109,29 @@ def test_normalize_value_applies_scale_words(value, unit, expected):
         ("yaklaşık kırk", "TL"),
         ("12-15", "%"),
         ("45,2", "milyar 2024 TL"),
+        ("45,2 milyar TL", "milyar TL"),
     ],
 )
 def test_normalize_value_failure_returns_reason(value, unit):
     result, error = normalize_value(value, unit)
     assert result == (None, None)
     assert error
+
+
+@pytest.mark.parametrize("value", [2.202, 45, 18.2])
+def test_generation_schema_rejects_json_numbers_for_value(value):
+    with pytest.raises(ValidationError):
+        GeneratedAnswer.model_validate_json(json.dumps({"answer": "x", "value": value}))
+
+
+def test_value_with_its_own_scale_word_fails_and_is_reported():
+    answer, debug = build_answer(
+        gen(answer="45,2 milyar TL [1].", value="45,2 milyar TL", unit="milyar TL", citations=[1]),
+        SOURCES,
+    )
+    assert (answer.value, answer.unit) == (None, None)
+    assert "more than one scale word" in debug["normalization_error"]
+    assert answer.answer == "45,2 milyar TL [1]."
 
 
 def test_normalize_value_without_value():

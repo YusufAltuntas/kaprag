@@ -137,3 +137,16 @@ def test_aclose_closes_the_retriever(tmp_dir):
     pipeline, _, retriever = make(tmp_dir, [])
     asyncio.run(pipeline.aclose())
     assert retriever.closed
+
+
+def test_numeric_value_is_rejected_then_retried_then_surfaced(tmp_dir):
+    number = json.dumps({"answer": "2.202 milyar TL [1].", "value": 2.202, "unit": "milyar TL"})
+    pipeline, backend, _ = make(tmp_dir, [number, number])
+    with pytest.raises(LLMCallError, match="GeneratedAnswer"):
+        asyncio.run(pipeline.run("soru", tags=dict(TAGS)))
+    assert len(backend.prompts) == 2  # the client's single JSON retry
+
+
+def test_prompt_states_citation_and_basis_rules():
+    assert "reddettiğin" in SYSTEM_PROMPT  # cite only supporting sources, not rejected ones
+    assert "varsaydıysan" in SYSTEM_PROMPT  # an assumed consolidated figure sets `basis`
