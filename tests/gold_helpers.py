@@ -66,7 +66,7 @@ def synthetic_doc(year: int = 2024) -> list[dict]:
         element(4, "heading", "Strateji"),
         element(4, "paragraph", PROSE * 8),
         element(5, "paragraph", "Not"),
-        element(6, "paragraph", PROSE),
+        element(6, "paragraph", PROSE + " Tutarlar bin TL."),
         element(6, "table", table),
     ]
 

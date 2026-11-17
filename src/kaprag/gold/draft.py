@@ -72,7 +72,7 @@ class Draft(BaseModel):
     derived_from: list[str] = []  # keys of source drafts
     llm_checked: bool = False
     notes: str = ""
-    metric: str | None = None  # metric id (probes, YoY pairs)
+    metric: str | None = None  # metric id (probes, derived) or 'abstain:<kind>'
     quote: str | None = None  # the figure(s) as written on the page
 
 

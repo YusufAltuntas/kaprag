@@ -404,3 +404,21 @@ def test_text_draft_passes_with_null_figure_check(page):
     )
     passed, _ = apply_check([d], check)
     assert len(passed) == 1 and passed[0].llm_checked
+
+
+def test_tolerance_covers_the_rounding_of_the_printed_figure():
+    from kaprag.gold.figures import rounding_tolerance
+
+    def tol(*args):
+        t = rounding_tolerance(*args)
+        return t.type, t.amount
+
+    assert tol("2,6", "trilyon TL", "TL", 2_600_000_000_000) == ("rel", 0.0193)
+    assert tol("111", "milyar TL", "TL", 111_000_000_000) == ("rel", 0.01)  # 0.45% < 1%
+    assert tol("1.073.924", "bin TL", "TL", 1_073_924_000) == ("rel", 0.01)
+    assert tol("1 trilyon 905 milyar", "TL", "TL", 1_905_000_000_000) == ("rel", 0.01)
+    assert tol("17", "%", "%", 17) == ("abs", 0.5)
+    assert tol("%17,3", None, "%", 17.3) == ("abs", 0.2)
+    assert tol("27,7", "milyon müşteri", "adet", 27_700_000) == ("abs", 50_000)
+    assert tol("21.167", "kişi", "adet", 21_167) == ("abs", 0)
+    assert tol(None, "şube", "adet", 694) == ("abs", 0)  # summed components are exact

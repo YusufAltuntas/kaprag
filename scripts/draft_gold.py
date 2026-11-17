@@ -9,7 +9,7 @@ Smoke (tiny scale, same code):
   uv run python scripts/draft_gold.py runs/2026-11-17-gold-draft-smoke \
       --out runs/2026-11-17-gold-draft-smoke/questions.jsonl \
       --docs akbank-2024,akbank-2025,isbank-2025,garanti-2025 --table-pages 1 --text-pages 1 \
-      --metrics net_profit,total_assets,branches --abstain-per-kind 2 --ambiguous-per-kind 1
+      --metrics net_profit,total_assets,branches --abstain-per-call 1 --ambiguous-per-kind 1
 
 Needs the index tables (`--index-variant`, all 12 documents present), `DATABASE_URL`,
 the `ml` group and a GPU for query embeddings, and `LLM_BACKEND` (default claude_code).
@@ -57,13 +57,15 @@ def main() -> int:
     parser.add_argument("--table-requests", default="tablo=2,hesaplama=1")
     parser.add_argument("--text-requests", default="olgusal=2,sentez=1")
     parser.add_argument("--metrics", default=",".join(m.id for m in METRICS))
-    parser.add_argument("--abstain-per-kind", type=int, default=18)
+    parser.add_argument("--abstain-per-call", type=int, default=4, help="per kind x focus call")
     parser.add_argument("--abstain-batch", type=int, default=4)
     parser.add_argument("--ambiguous-per-kind", type=int, default=9)
     parser.add_argument("--quotas", default=",".join(f"{t}={n}" for t, n in DEFAULT_QUOTAS.items()))
     parser.add_argument("--pilot", type=int, default=30)
     parser.add_argument("--index-variant", default="structure", choices=VARIANTS)
     parser.add_argument("--device", default="cuda", help="query embedding device")
+    parser.add_argument("--no-evidence", action="store_true", help="skip evidence completion")
+    parser.add_argument("--evidence-model", default="claude-haiku-5-5")
     args = parser.parse_args()
 
     backend = os.environ.get("LLM_BACKEND", "claude_code")
@@ -98,11 +100,13 @@ def main() -> int:
         table_requests=_counts(args.table_requests),
         text_requests=_counts(args.text_requests),
         metrics=[METRICS_BY_ID[m] for m in args.metrics.split(",") if m],
-        abstain_per_kind=args.abstain_per_kind,
+        abstain_per_call=args.abstain_per_call,
         abstain_batch=args.abstain_batch,
         ambiguous_per_kind=args.ambiguous_per_kind,
         quotas=_counts(args.quotas),
         pilot=args.pilot,
+        evidence=not args.no_evidence,
+        evidence_model=args.evidence_model,
     )
     trace_path = run_dir / "llm-trace.jsonl"
     client = create_client(trace_path=trace_path)

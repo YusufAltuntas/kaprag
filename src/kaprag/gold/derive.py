@@ -18,7 +18,7 @@ from __future__ import annotations
 import hashlib
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 from itertools import combinations
 
 from kaprag.eval.schema import Evidence, Expected
@@ -73,14 +73,34 @@ def common_basis(drafts: Sequence[Draft]) -> str | None:
     return basis
 
 
+def abs_tolerance(d: Draft) -> Decimal:
+    """A draft's tolerance as an absolute amount in its unit."""
+    t = d.expected.tolerance
+    if t is None:
+        return Decimal(0)
+    amount = _dec(t.amount)
+    return amount * abs(_dec(d.expected.value)) if t.type == "rel" else amount
+
+
 def rank(drafts: Sequence[Draft], min_gap_rel: Decimal = MIN_GAP_REL) -> list[Draft] | None:
-    """Drafts by value, highest first; None if two neighbours are within `min_gap_rel`."""
+    """Drafts by value, highest first; None if two neighbours are within `min_gap_rel` of
+    each other or within their combined tolerances (rounded figures could swap)."""
     ordered = sorted(drafts, key=lambda d: (-_dec(d.expected.value), d.key))
     for hi, lo in zip(ordered, ordered[1:], strict=False):
         a, b = _dec(hi.expected.value), _dec(lo.expected.value)
-        if abs(a - b) <= min_gap_rel * max(abs(a), abs(b)):
+        gap = max(min_gap_rel * max(abs(a), abs(b)), abs_tolerance(hi) + abs_tolerance(lo))
+        if abs(a - b) <= gap:
             return None
     return ordered
+
+
+def _rounding_excess(d: Draft) -> Decimal:
+    """How far a source's tolerance was widened beyond the spec rule (printed rounding)."""
+    t = d.expected.tolerance
+    base = TOLERANCE_BY_UNIT[d.expected.unit]
+    if t is None or d.expected.unit is None:
+        return Decimal(0)
+    return max(Decimal(0), _dec(t.amount) - _dec(base.amount))
 
 
 # --- formatting ------------------------------------------------------------------------
@@ -241,12 +261,20 @@ def _pair(metric_id: str, year: int, basis: str | None, a: Draft, b: Draft) -> l
             delta = point_change(v_lo, v_hi)
             question = f"{lead}{metric.noun}, {BANK_GENITIVE[bank_lo]}kinden kaç puan yüksekti?"
             answer = f"{_tr_number(delta, 2)} puan"
-            tolerance = TOLERANCE_BY_UNIT["%"]
+            extra = _rounding_excess(hi) + _rounding_excess(lo)
+            tolerance = TOLERANCE_BY_UNIT["%"].model_copy(
+                update={"amount": float(_dec(TOLERANCE_BY_UNIT["%"].amount) + extra)}
+            )
         else:
             delta = percent_change(v_lo, v_hi)
             question = f"{lead}{metric.noun}, {BANK_GENITIVE[bank_lo]}kinden yüzde kaç fazlaydı?"
             answer = f"%{_tr_number(delta, 2)}"
-            tolerance = COMPUTED_PERCENT_TOLERANCE
+            # relative rounding of the inputs propagates into the % difference
+            extra = (v_hi / v_lo) * (_rounding_excess(hi) + _rounding_excess(lo)) * 100
+            amount = (_dec(COMPUTED_PERCENT_TOLERANCE.amount) + extra).quantize(
+                _CENT, rounding=ROUND_CEILING
+            )
+            tolerance = COMPUTED_PERCENT_TOLERANCE.model_copy(update={"amount": float(amount)})
         answer += (
             f" ({BANK_NAMES[bank_hi]}: {format_value(v_hi, metric.unit)}; "
             f"{BANK_NAMES[bank_lo]}: {format_value(v_lo, metric.unit)})."

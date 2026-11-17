@@ -17,8 +17,8 @@ from typing import Literal
 from pydantic import BaseModel
 
 from kaprag.eval.schema import Evidence, Expected
-from kaprag.gold.draft import BANK_NAMES, TOLERANCE_BY_UNIT, Draft
-from kaprag.gold.figures import FigureError, figure_number, read_figure
+from kaprag.gold.draft import BANK_NAMES, Draft
+from kaprag.gold.figures import FigureError, figure_number, read_figure, rounding_tolerance
 from kaprag.gold.metrics import Metric, single_question
 from kaprag.gold.pages import DocPages
 from kaprag.retrieval import SearchHit
@@ -162,7 +162,7 @@ def validate_probe(
             answer=out.answer or f"{' + '.join(parts)} {out.unit_text or ''}".strip(),
             value=value,
             unit=unit,
-            tolerance=TOLERANCE_BY_UNIT[unit],
+            tolerance=rounding_tolerance(out.figure, out.unit_text, unit, value),
         ),
         evidence=[Evidence(doc=doc_id, page=page)],
         notes=notes,

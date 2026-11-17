@@ -62,35 +62,66 @@ JUDGE_SYSTEM = (
 )
 
 
-def build_draft_prompt(per_kind: int, facts: Sequence[Draft]) -> str:
+# One drafting call per (kind, focus): small, focused calls give the requested number of
+# questions reliably (one call asking for many per kind returned only 6 each).
+OUTSIDE_BANK_FOCUS = (
+    "Ziraat Bankası ve Halkbank",
+    "VakıfBank ve QNB",
+    "Denizbank ve TEB",
+    "ING, Şekerbank ve Odeabank",
+)
+_KIND_HELP = {
+    "korpus_disi_banka": (
+        "Korpusta olmayan bir Türk bankası hakkında soru. Bu partide yalnızca şu bankalar: "
+        "{focus}. banks boş liste."
+    ),
+    "yanlis_oncul": (
+        '{focus} için yanlış bir öncül içeren soru (ör. kâr eden bankaya "ne kadar zarar '
+        'etti?", olmayan bir birleşmeyi, devralmayı, kapanmayı, yaptırımı ya da olayı varsayan '
+        "soru). Aşağıdaki doğrulanmış rakamlardan yararlan; öncül bu rakamlarla ya da raporla "
+        "açıkça çelişmeli. banks: sorudaki banka(lar)."
+    ),
+    "olmayan_bilgi": (
+        "{focus} için, faaliyet raporunda yer alması beklenmeyen ama makul görünen bir bilgi "
+        "(ör. belirli bir şubenin müşteri sayısı, bir yöneticinin kişisel bilgisi, gelecek yıl "
+        "hisse fiyatı hedefi, rakam bazında çok ince bir kırılım). banks: sorudaki banka(lar)."
+    ),
+}
+
+
+def focuses(kind: str) -> tuple[str, ...]:
+    """The focus of each drafting call of a kind: outside banks, or one corpus bank."""
+    if kind == "korpus_disi_banka":
+        return OUTSIDE_BANK_FOCUS
+    return tuple(BANK_NAMES.values())
+
+
+def build_draft_prompt(kind: str, n: int, focus: str, facts: Sequence[Draft]) -> str:
     fact_lines = "\n".join(
         f"- {BANK_NAMES[f.banks[0]]} {f.years[0]} {f.metric} ({f.basis or 'esas belirsiz'}): "
         f"{format_value(f.expected.value, f.expected.unit)}"
         for f in facts
-        if f.expected.value is not None
+        if f.expected.value is not None and BANK_NAMES[f.banks[0]] == focus
     )
-    return f"""Korpus: Garanti BBVA, Akbank, İş Bankası ve Yapı Kredi'nin 2023, 2024 ve 2025 \
-yılı entegre faaliyet raporları (Türkçe). Raporlar önceki yılın karşılaştırmalı rakamlarını \
-(ör. 2023 raporunda 2022) ve bazı çok yıllık özet tabloları da içerir. Akbank, İş Bankası ve \
-Yapı Kredi raporları tam finansal tabloları (konsolide ve solo) içerir; Garanti raporu içermez.
-
-Görev: Bu korpustan CEVAPLANAMAYAN, ama bir kullanıcının makul olarak sorabileceği sorular \
-yaz. Her türden {per_kind} soru:
-- korpus_disi_banka: Korpusta olmayan bir Türk bankası hakkında (Ziraat Bankası, Halkbank, \
-VakıfBank, QNB, Denizbank, TEB, ING, Şekerbank...). banks boş liste.
-- yanlis_oncul: Korpustaki bir banka için yanlış bir öncül içeren soru (ör. kâr eden bir \
-banka için "ne kadar zarar etti?", olmayan bir birleşmeyi, kapanmayı ya da olayı varsayan \
-soru). Aşağıdaki doğrulanmış rakamlardan yararlan. banks: sorudaki banka(lar).
-- olmayan_bilgi: Korpustaki bir banka için, faaliyet raporunda yer alması beklenmeyen ama \
-makul görünen bir bilgi (ör. belirli bir şubenin müşteri sayısı, bir yöneticinin kişisel \
-bilgisi, gelecek yıl hisse fiyatı hedefi, rakam bazında çok ince bir kırılım). banks: \
-sorudaki banka(lar).
-Kurallar: Soru kendi başına anlaşılır olsun; banka adını ve yılı (yıl gerekiyorsa) açıkça \
-yazsın. Bankaları ve yılları (2023, 2024, 2025) dengeli dağıt. years: soruda geçen yıllar. \
-why: neden cevaplanamadığı (kısa).
-
-Doğrulanmış rakamlar (yanlış öncül için):
-{fact_lines or "- (yok)"}"""
+    help_text = _KIND_HELP[kind].format(focus=focus)
+    lines = [
+        "Korpus: Garanti BBVA, Akbank, İş Bankası ve Yapı Kredi'nin 2023, 2024 ve 2025 yılı "
+        "entegre faaliyet raporları (Türkçe). Raporlar önceki yılın karşılaştırmalı rakamlarını "
+        "(ör. 2023 raporunda 2022) ve bazı çok yıllık özet tabloları da içerir. Akbank, İş "
+        "Bankası ve Yapı Kredi raporları tam finansal tabloları (konsolide ve solo) içerir; "
+        "Garanti raporu içermez.",
+        "",
+        f"Görev: Bu korpustan CEVAPLANAMAYAN, ama bir kullanıcının makul olarak sorabileceği "
+        f"tam {n} soru yaz; hepsi kind={kind}:",
+        f"- {help_text}",
+        "Kurallar: Soru kendi başına anlaşılır olsun; banka adını ve yılı (yıl gerekiyorsa) "
+        "açıkça yazsın. Yılları (2023, 2024, 2025) dengeli dağıt; soruları birbirinden farklı "
+        "konularda yaz. years: soruda geçen yıllar. why: neden cevaplanamadığı (kısa; başına "
+        "tür adını yazma).",
+    ]
+    if kind == "yanlis_oncul":
+        lines += ["", "Doğrulanmış rakamlar:", fact_lines or "- (yok)"]
+    return "\n".join(lines)
 
 
 def validate_candidate(out: AbstainOut) -> None:
@@ -152,9 +183,12 @@ def to_draft(
 ) -> Draft:
     evidence: list[Evidence] = []
     if out.kind == "yanlis_oncul":
+        # only reports of the question's own bank(s) and year(s) can refute its premise
+        years = out.years or [2023, 2024, 2025]
+        own_docs = {f"{b}-{y}" for b in out.banks for y in years}
         seen: set[tuple[str, int]] = set()
         for j in verdict.evidence_passages:
-            if 1 <= j <= len(hits):
+            if 1 <= j <= len(hits) and hits[j - 1].doc_id in own_docs:
                 h = hits[j - 1]
                 for page in range(h.page_start, h.page_end + 1):
                     if (h.doc_id, page) not in seen:
@@ -179,6 +213,7 @@ def to_draft(
         ),
         evidence=evidence,
         llm_checked=True,
+        metric=f"abstain:{out.kind}",  # grouping tag: assembly balances the three kinds
         notes=f"abstain kind: {out.kind}; corpus check: {verdict.verdict} - {verdict.reason}",
     )
 

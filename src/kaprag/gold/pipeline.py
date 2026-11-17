@@ -18,14 +18,20 @@ from typing import Any
 
 from kaprag.corpus import Document
 from kaprag.eval.schema import save_questions
-from kaprag.gold import abstain, ambiguous, checking, drafting, probes
-from kaprag.gold.assemble import DEFAULT_QUOTAS, PILOT_SIZE, assemble, drop_probe_duplicates
+from kaprag.gold import abstain, ambiguous, checking, drafting, evidence, probes
+from kaprag.gold.assemble import (
+    DEFAULT_QUOTAS,
+    PILOT_SIZE,
+    drop_probe_duplicates,
+    finalize,
+    select,
+)
 from kaprag.gold.derive import compose_from_probes
 from kaprag.gold.draft import Draft, write_drafts
 from kaprag.gold.figures import FigureError
 from kaprag.gold.metrics import METRICS, Metric
 from kaprag.gold.pages import SEED, DocPages, sample_pages
-from kaprag.gold.runlog import RunLog, call_llm
+from kaprag.gold.runlog import HAIKU, RunLog, call_llm
 from kaprag.gold.search import Searcher
 from kaprag.parsing.outputs import DEFAULT_PARSED_DIR, write_jsonl_atomic
 
@@ -40,13 +46,15 @@ class RunConfig:
     table_requests: dict[str, int] = field(default_factory=lambda: {"tablo": 2, "hesaplama": 1})
     text_requests: dict[str, int] = field(default_factory=lambda: {"olgusal": 2, "sentez": 1})
     metrics: Sequence[Metric] = METRICS
-    abstain_per_kind: int = 18
+    abstain_per_call: int = 4  # x 4 focuses x 3 kinds = 48 candidates
     abstain_batch: int = 4
     ambiguous_per_kind: int = 9
     quotas: dict[str, int] = field(default_factory=lambda: dict(DEFAULT_QUOTAS))
     pilot: int = PILOT_SIZE
     seed: int = SEED
     parsed_dir: Path = DEFAULT_PARSED_DIR
+    evidence: bool = True
+    evidence_model: str = HAIKU
 
 
 class Pipeline:
@@ -59,6 +67,7 @@ class Pipeline:
         self._searcher: Searcher | None = None
         self.log = RunLog()
         self._pages: dict[str, DocPages] = {}
+        self._scan: dict[str, evidence.ScanIndex] = {}
         self.counts: dict[str, Any] = {}
 
     # --- helpers -----------------------------------------------------------------------
@@ -262,24 +271,34 @@ class Pipeline:
             kept.append(abstain.to_draft(ckey, out, verdict, hits))
         return kept
 
-    async def abstain(self, facts: Sequence[Draft]) -> list[Draft]:
-        n = self.cfg.abstain_per_kind
-        if n <= 0:
-            return []
+    async def _abstain_draft(self, kind: str, fi: int, focus: str, facts) -> list:
         result = await call_llm(
             self.client,
             self.log,
             stage="abstain_draft",
-            key="abstain",
+            key=f"abstain:{kind}:{fi}",
             system=abstain.DRAFT_SYSTEM,
-            user=abstain.build_draft_prompt(n, facts),
+            user=abstain.build_draft_prompt(kind, self.cfg.abstain_per_call, focus, facts),
             schema=abstain.AbstainDrafts,
         )
         if result is None:
             return []
+        return [(f"abstain:{kind}:{fi}:{i}", out) for i, out in enumerate(result.questions)]
+
+    async def abstain(self, facts: Sequence[Draft]) -> list[Draft]:
+        if self.cfg.abstain_per_call <= 0:
+            return []
+        calls = [
+            self._abstain_draft(kind, fi, focus, facts)
+            for kind in abstain.KINDS
+            for fi, focus in enumerate(abstain.focuses(kind))
+        ]
+        drafted = [x for xs in await asyncio.gather(*calls) for x in xs]
         candidates: list[tuple[str, abstain.AbstainOut, list]] = []
-        for i, out in enumerate(result.questions):
-            ckey = f"abstain:{i}"
+        for ckey, out in drafted:
+            if not ckey.startswith(f"abstain:{out.kind}:"):
+                self.log.drop("abstain_validation", ckey, f"kind {out.kind!r} not requested", out)
+                continue
             try:
                 abstain.validate_candidate(out)
             except ValueError as exc:
@@ -297,7 +316,7 @@ class Pipeline:
         results = await asyncio.gather(*(self._judge(b) for b in batches))
         kept = [d for ds in results for d in ds]
         write_drafts(self._path("abstain.jsonl"), kept)
-        self.counts["abstain_candidates"] = len(result.questions)
+        self.counts["abstain_candidates"] = len(drafted)
         self.counts["abstain_kept"] = len(kept)
         return kept
 
@@ -333,6 +352,38 @@ class Pipeline:
         self.counts["ambiguous_kept"] = len(kept)
         return kept
 
+    # --- evidence completion -------------------------------------------------------------
+
+    async def _complete(self, d: Draft) -> tuple[Draft, dict]:
+        doc_id = d.evidence[0].doc
+        if doc_id not in self._scan:
+            self._scan[doc_id] = evidence.ScanIndex(self.pages(doc_id))
+        hits = self._search("evidence_search", d.key, d.question, [doc_id], evidence.SEARCH_K)
+        candidates = evidence.candidates_for(d, self._scan[doc_id], hits or [])
+        if not candidates:
+            return evidence.apply_verdicts(d, [], None)
+        check = await call_llm(
+            self.client,
+            self.log,
+            stage="evidence",
+            key=d.key,
+            system=evidence.SYSTEM,
+            user=evidence.build_prompt(d, candidates),
+            schema=evidence.EvidenceCheck,
+            model=self.cfg.evidence_model,
+        )
+        return evidence.apply_verdicts(d, candidates, check)
+
+    async def complete_evidence(self, drafts: Sequence[Draft]) -> list[Draft]:
+        """Add every other checked page of the same report that states the answer."""
+        targets = [d for d in drafts if evidence.needs_completion(d)]
+        results = await asyncio.gather(*(self._complete(d) for d in targets))
+        completed = {d.key: d for d, _ in results}
+        write_jsonl_atomic(self._path("evidence.jsonl"), [r for _, r in results])
+        self.counts["evidence_checked"] = len(targets)
+        self.counts["evidence_pages_added"] = sum(len(r["added"]) for _, r in results)
+        return evidence.propagate([completed.get(d.key, d) for d in drafts])
+
     # --- all ---------------------------------------------------------------------------
 
     async def run(self) -> dict[str, Any]:
@@ -346,7 +397,10 @@ class Pipeline:
         abstained = await self.abstain(probe_singles)
         ambiguous_drafts = await self.ambiguous(probe_singles + page_singles)
         pool = page_singles + probe_singles + derived + abstained + ambiguous_drafts
-        questions = assemble(pool, self.cfg.quotas, self.cfg.pilot, self.cfg.seed)
+        chosen = select(pool, self.cfg.quotas, self.cfg.seed)
+        if self.cfg.evidence:
+            chosen = await self.complete_evidence(chosen)
+        questions = finalize(chosen, self.cfg.pilot, self.cfg.seed)
         save_questions(questions, self.cfg.out)
         self.counts["questions"] = dict(Counter(q.type for q in questions))
         self.counts["drops_by_stage"] = dict(Counter(d["stage"] for d in self.log.drops))

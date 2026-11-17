@@ -318,3 +318,69 @@ def test_page_single_duplicating_a_probe_is_removed():
     kept, dropped = drop_probe_duplicates([same, other_page], [probe])
     assert [d.key for d in kept] == ["page:x"]
     assert [(d.key, k) for d, k in dropped] == [("page:akbank-2024:5:0", probe.key)]
+
+
+# --- phase 3: abstain yield and balance -------------------------------------------------
+
+
+def test_abstain_prompts_are_one_kind_and_focus_each():
+    from kaprag.gold.abstain import KINDS, build_draft_prompt, focuses
+
+    facts = [single("f1", bank="akbank"), single("f2", bank="isbank")]
+    prompts = {
+        build_draft_prompt(kind, 4, focus, facts) for kind in KINDS for focus in focuses(kind)
+    }
+    assert len(prompts) == 12  # 3 kinds x 4 focuses, all distinct
+    premise = build_draft_prompt("yanlis_oncul", 4, "Akbank", facts)
+    assert "tam 4 soru" in premise and "hepsi kind=yanlis_oncul" in premise
+    assert "- Akbank 2024" in premise and "İş Bankası 2024" not in premise
+    outside = build_draft_prompt("korpus_disi_banka", 4, focuses("korpus_disi_banka")[0], facts)
+    assert "Ziraat" in outside and "Doğrulanmış" not in outside
+
+
+def test_assembly_balances_abstain_kinds():
+    from kaprag.gold.abstain import AbstainVerdict
+    from kaprag.gold.abstain import to_draft as abstain_draft
+
+    v = AbstainVerdict(index=0, verdict="not_in_corpus", evidence_passages=[], reason="")
+    pool = [
+        abstain_draft(
+            f"a:{kind}:{i}",
+            abstain_out(kind=kind, banks=[] if kind == "korpus_disi_banka" else ["akbank"]),
+            v,
+            [],
+        )
+        for kind in ("korpus_disi_banka", "yanlis_oncul", "olmayan_bilgi")
+        for i in range(5 if kind == "korpus_disi_banka" else 2)
+    ]
+    picked = balanced_pick(pool, 6)
+    assert Counter(d.metric for d in picked) == {
+        "abstain:korpus_disi_banka": 2,
+        "abstain:yanlis_oncul": 2,
+        "abstain:olmayan_bilgi": 2,
+    }
+
+
+def test_select_mixes_page_and_derived_calculations():
+    a, b = single("a", bank="akbank"), single("b", bank="isbank")
+    gaps = [derived(f"g{i}", [a, b], "hesaplama") for i in range(5)]
+    yoy = [single(f"y{i}", bank="garanti", year=2023 + i, type_="hesaplama") for i in range(2)]
+    chosen = select([a, b, *gaps, *yoy], {"hesaplama": 4, "tablo": 2})
+    calc = [d.key for d in chosen if d.type == "hesaplama"]
+    assert len(calc) == 4 and {"y0", "y1"} <= set(calc)
+
+
+def test_false_premise_evidence_is_restricted_to_the_questions_reports():
+    premise = abstain_out(
+        kind="yanlis_oncul",
+        banks=["akbank"],
+        years=[2025],
+        question="Akbank 2025'te ne kadar zarar etti?",
+    )
+    v = AbstainVerdict(index=0, verdict="false_premise", evidence_passages=[1, 2], reason="")
+    hits = [
+        hit("x", doc="akbank-2024", start=14, end=14),
+        hit("y", doc="akbank-2025", start=9, end=9),
+    ]
+    d = to_draft("k", premise, v, hits)
+    assert [(e.doc, e.page) for e in d.evidence] == [("akbank-2025", 9)]

@@ -142,3 +142,28 @@ def test_compose_does_not_compare_years_across_reports():
 def test_compose_is_deterministic():
     probes = [probe("akbank", 2025, 300), probe("isbank", 2025, 100), probe("garanti", 2025, 200)]
     assert compose_from_probes(probes) == compose_from_probes(list(reversed(probes)))
+
+
+def test_rank_refuses_values_within_their_combined_tolerances():
+    a, b = probe("akbank", 2025, 1000), probe("isbank", 2025, 985)  # 1.5% apart, 1% each
+    assert rank([a, b]) is None
+    assert rank([a, probe("isbank", 2025, 970)]) is not None  # 3% apart
+
+
+def test_gap_tolerance_grows_with_rounded_inputs():
+    from kaprag.eval.schema import Tolerance
+
+    hi = probe("akbank", 2025, 2_600_000)
+    hi = hi.model_copy(
+        update={
+            "expected": hi.expected.model_copy(
+                update={"tolerance": Tolerance(type="rel", amount=0.0193)}
+            )
+        }
+    )
+    lo = probe("isbank", 2025, 1_000_000)
+    gap = next(d for d in compose_from_probes([hi, lo]) if d.type == "hesaplama")
+    assert gap.expected.value == 160.0
+    assert gap.expected.tolerance.amount == 2.92  # 0.5 + 2.6 * 0.0093 * 100, rounded up
+    exact = compose_from_probes([probe("akbank", 2025, 2_600_000), lo])
+    assert next(d for d in exact if d.type == "hesaplama").expected.tolerance.amount == 0.5

@@ -13,10 +13,11 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence, Set
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 
 from kaprag.eval.numeric import NumericParseError, normalize, parse_number, to_json_number
-from kaprag.gold.draft import fold
+from kaprag.eval.schema import Tolerance
+from kaprag.gold.draft import TOLERANCE_BY_UNIT, fold
 from kaprag.gold.pages import NUMBER_TOKEN
 
 VALUE_REL_EPS = Decimal("0.000001")
@@ -125,3 +126,42 @@ def _check_scale_on_page(text: str, page_text: str) -> None:
     page_words = set(re.findall(r"\w+", fold(page_text)))
     if not page_words & set(scales):
         raise FigureError(f"unit scale {scales[0]!r} is not written on the page")
+
+
+def rounding_tolerance(
+    figure: str | None, unit_text: str | None, unit: str, value: int | float
+) -> Tolerance:
+    """The spec tolerance for `unit`, widened to cover the rounding of the printed figure.
+
+    A figure printed as "2,6 trilyon TL" only pins the value to +-0.05 trilyon (1.9%), so
+    the exact statement figure must still score as correct; "%17" pins a ratio to +-0.5
+    points; "27,7 milyon" customers to +-50 000. Exact figures keep the spec tolerance.
+    Components (summed parts) are exact counts and keep it too.
+    """
+    base = TOLERANCE_BY_UNIT[unit]
+    if not figure:
+        return base
+    tokens = NUMBER_TOKEN.findall(figure)
+    parts = _COMPOUND_PART.findall(fold(figure))
+    try:
+        last = parse_number(tokens[-1])
+        scale = Decimal(_SCALES[parts[-1][1]]) if len(parts) == len(tokens) > 1 else Decimal(1)
+        scale *= normalize(Decimal(1), unit_text or "").value if unit != "%" else Decimal(1)
+    except (NumericParseError, IndexError, KeyError):
+        return base
+    half_unit = Decimal(5) * Decimal(10) ** (last.as_tuple().exponent - 1) * scale
+    if unit == "TL":
+        if not value:
+            return base
+        rel = half_unit / abs(Decimal(str(value)))
+        amount = max(Decimal(str(base.amount)), _round_up(rel, 4))
+        return Tolerance(type="rel", amount=float(amount))
+    if half_unit <= Decimal("0.5") and unit == "adet":
+        return base
+    amount = max(Decimal(str(base.amount)), _round_up(half_unit, 2))
+    return Tolerance(type="abs", amount=int(amount) if unit == "adet" else float(amount))
+
+
+def _round_up(x: Decimal, places: int) -> Decimal:
+    q = Decimal(10) ** -places
+    return x.quantize(q, rounding=ROUND_CEILING)

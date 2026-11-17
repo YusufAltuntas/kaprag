@@ -118,31 +118,48 @@ def probe_reply(user, schema):
 
 
 def abstain_reply(user, schema):
-    return {
-        "questions": [
-            {
-                "kind": "korpus_disi_banka",
-                "question": "Ziraat Bankası 2024'te kaç şubesi vardı?",
-                "banks": [],
-                "years": [2024],
-                "why": "Ziraat korpusta yok",
-            },
-            {
-                "kind": "yanlis_oncul",
-                "question": "Akbank 2024 yılında ne kadar zarar etti?",
-                "banks": ["akbank"],
-                "years": [2024],
-                "why": "Akbank kâr etti",
-            },
-            {
-                "kind": "olmayan_bilgi",
-                "question": "Akbank'ın Kadıköy şubesinin müşteri sayısı?",
-                "banks": ["isbank"],
-                "years": [],
-                "why": "-",
-            },  # banks mismatch -> dropped
-        ]
-    }
+    """One question per kind, only for the first focus of the kind (Ziraat / Akbank); the
+    olmayan_bilgi call also returns a mis-kinded question, which must be dropped."""
+    kind = re.search(r"hepsi kind=(\w+)", user).group(1)
+    if "Ziraat" not in user and "- Akbank için" not in user:
+        return {"questions": []}
+    wanted = {kind, "korpus_disi_banka"} if kind == "olmayan_bilgi" else {kind}
+    return {"questions": [q for q in ALL_ABSTAIN if q["kind"] in wanted]}
+
+
+ALL_ABSTAIN = {
+    "questions": [
+        {
+            "kind": "korpus_disi_banka",
+            "question": "Ziraat Bankası 2024'te kaç şubesi vardı?",
+            "banks": [],
+            "years": [2024],
+            "why": "Ziraat korpusta yok",
+        },
+        {
+            "kind": "yanlis_oncul",
+            "question": "Akbank 2024 yılında ne kadar zarar etti?",
+            "banks": ["akbank"],
+            "years": [2024],
+            "why": "Akbank kâr etti",
+        },
+        {
+            "kind": "olmayan_bilgi",
+            "question": "Akbank'ın Kadıköy şubesinin müşteri sayısı?",
+            "banks": ["isbank"],
+            "years": [],
+            "why": "-",
+        },  # banks mismatch -> dropped
+    ]
+}["questions"]
+
+
+def evidence_reply(user, schema):
+    """Approves figure-matched pages that show the 2024 table; rejects the rest."""
+    items = []
+    for i, page in re.findall(r"^### Aday (\d+) \(sayfa (\d+)\)", user, flags=re.M):
+        items.append({"candidate": int(i), "states_answer": page == "6", "reason": "r"})
+    return {"items": items}
 
 
 def judge_reply(user, schema):
@@ -191,6 +208,7 @@ def run_pipeline(tmp_dir, searcher):
             "abstain_draft": abstain_reply,
             "abstain_judge": judge_reply,
             "ambiguous": ambiguous_reply,
+            "evidence": evidence_reply,
         }
     )
     run_dir, out = tmp_dir / "run", tmp_dir / "gold" / "questions.jsonl"
@@ -201,7 +219,7 @@ def run_pipeline(tmp_dir, searcher):
         table_pages=1,
         text_pages=1,
         metrics=[METRICS_BY_ID["net_profit"]],
-        abstain_per_kind=1,
+        abstain_per_call=1,
         ambiguous_per_kind=1,
         quotas={
             "olgusal": 5,
@@ -238,7 +256,7 @@ def test_pipeline_end_to_end(tmp_dir):
     counts = summary["counts"]
     assert counts["failures_by_stage"] == {"draft": 1}  # one page failed; run went on
     assert counts["drops_by_stage"]["draft_validation"] == 2
-    assert counts["drops_by_stage"]["abstain_validation"] == 1
+    assert counts["drops_by_stage"]["abstain_validation"] == 2  # mis-kinded, banks mismatch
     assert counts["drops_by_stage"]["dedup"] == 1  # Akbank page net profit == its probe
     for name in (
         "pages.jsonl",
@@ -261,6 +279,23 @@ def test_pipeline_end_to_end(tmp_dir):
     ]
     assert any("not found on the page" in d["reason"] for d in drops)
 
+    # evidence completion: page 6 repeats the table -> added after the original page
+    tablo = [q for q in questions if q.type == "tablo"]
+    assert tablo and all([e.page for e in q.evidence] == [3, 6] for q in tablo)
+    gap = next(q for q in questions if q.type == "hesaplama" and len(q.banks) == 2)
+    assert {(e.doc, e.page) for e in gap.evidence} == {
+        (b, p) for b in ("akbank-2024", "isbank-2024") for p in (3, 6)
+    }
+    records = [
+        json.loads(x) for x in (run_dir / "evidence.jsonl").read_text("utf-8").split("\n") if x
+    ]
+    assert records and any(r["added"] for r in records)
+    for r in records:  # only pages that passed the check are added; the rest are logged
+        assert [a["page"] for a in r["added"]] == [
+            c["page"] for c in r["candidates"] if c["page"] == 6
+        ]
+        assert len(r["added"]) + len(r["rejected"]) == len(r["candidates"])
+
 
 class FailingSearcher(FakeSearcher):
     """Fails for whole-corpus queries and for isbank-2024 probe queries."""
@@ -277,7 +312,11 @@ def test_search_failure_is_logged_and_the_run_continues(tmp_dir):
         json.loads(x) for x in (run_dir / "failures.jsonl").read_text("utf-8").split("\n") if x
     ]
     search_failures = [f for f in failures if f["stage"].endswith("search")]
-    assert {f["stage"] for f in search_failures} == {"probe_search", "abstain_search"}
+    assert {f["stage"] for f in search_failures} == {
+        "probe_search",
+        "abstain_search",
+        "evidence_search",
+    }
     assert all("database went away" in f["error"] for f in search_failures)
     questions = load_questions(out)
     assert not any("Ziraat" in q.question for q in questions)  # its corpus check never ran

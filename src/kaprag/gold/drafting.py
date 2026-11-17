@@ -18,8 +18,8 @@ from pydantic import BaseModel
 
 from kaprag.eval.schema import Evidence, Expected
 from kaprag.gold.derive import yoy_expected
-from kaprag.gold.draft import BANK_NAMES, TOLERANCE_BY_UNIT, Draft
-from kaprag.gold.figures import FigureError, UnitError, read_figure
+from kaprag.gold.draft import BANK_NAMES, Draft
+from kaprag.gold.figures import FigureError, UnitError, read_figure, rounding_tolerance
 from kaprag.gold.text import bases_mentioned, copied_run, mentions_bank, years_mentioned
 
 PAGE_TYPES = ("olgusal", "tablo", "hesaplama", "sentez")
@@ -133,7 +133,8 @@ def build_prompt(task: PageTask, page_text: str) -> str:
 
 def _numeric_expected(out: DraftOut, numbers: Set[Decimal], page_text: str) -> Expected:
     value, unit = read_figure(out.figure, out.unit_text, out.value, out.unit, numbers, page_text)
-    return Expected(answer=out.answer, value=value, unit=unit, tolerance=TOLERANCE_BY_UNIT[unit])
+    tolerance = rounding_tolerance(out.figure, out.unit_text, unit, value)
+    return Expected(answer=out.answer, value=value, unit=unit, tolerance=tolerance)
 
 
 def validate_draft(

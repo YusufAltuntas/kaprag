@@ -1,11 +1,12 @@
 """Final assembly: per-type quotas, ids, dev/test split and pilot flags.
 
-Selection order: derived and ambiguous drafts first; the singles they reference
-(`derived_from`) are then forced in, because a derived question is only verifiable
-through its sources; remaining quota of every type is filled from the other checked
-drafts. Within a type, drafts are taken round-robin over cells - (bank, year) for
-single-bank drafts, (metric, year) for multi-bank ones - in a seeded order, so no bank,
-year or metric dominates. Ids `q001...` follow a stable sort (type order, banks, years,
+Selection order: every type except `tablo`/`olgusal` first (derived and page drafts
+compete in one pool per type); the singles they reference (`derived_from`) are then
+forced in, because a derived question is only verifiable through its sources; the
+remaining `tablo`/`olgusal` quota is filled from the other checked drafts. Within a
+type, drafts are taken round-robin over cells - (bank, year) for single-bank drafts,
+(metric, year) for multi-bank ones, the kind for cevapsiz - in a seeded order, so no
+bank, year, metric or kind dominates. Ids `q001...` follow a stable sort (type order, banks, years,
 key); then `kaprag.eval.split.initial_split` and `select_pilot` run on the result.
 """
 
@@ -42,6 +43,8 @@ PILOT_SIZE = 30
 
 
 def _cell(d: Draft) -> tuple:
+    if d.source == "abstain":  # balance the three cevapsiz kinds
+        return ("abstain", d.metric or "")
     if len(d.banks) == 1:
         return ("bank", d.banks[0], d.years[0] if d.years else 0)
     return ("multi", d.metric or "", tuple(d.years))
@@ -64,24 +67,35 @@ def balanced_pick(drafts: Sequence[Draft], n: int, seed: int = SEED) -> list[Dra
     return out
 
 
+# Types whose drafts may be forced in as sources of other drafts; they are filled last.
+SOURCE_TYPES = ("tablo", "olgusal")
+
+
 def select(pool: Sequence[Draft], quotas: Mapping[str, int], seed: int = SEED) -> list[Draft]:
-    """The drafts to publish, honouring quotas and forcing in referenced sources."""
+    """The drafts to publish, honouring quotas and forcing in referenced sources.
+
+    Every type except the source types is picked first, from ALL its drafts (so page-YoY
+    `hesaplama` competes with probe-derived gaps); the sources those drafts reference are
+    then forced in, and `tablo` / `olgusal` are filled up to their quotas last.
+    """
     by_key = {d.key: d for d in pool}
     if len(by_key) != len(pool):
         raise ValueError("duplicate draft keys")
     chosen: dict[str, Draft] = {}
-    composed = [d for d in pool if d.derived_from]
     for type_ in QUESTION_TYPES:
-        candidates = [d for d in composed if d.type == type_]
+        if type_ in SOURCE_TYPES:
+            continue
+        candidates = [
+            d for d in pool if d.type == type_ and all(k in by_key for k in d.derived_from)
+        ]
         for d in balanced_pick(candidates, quotas.get(type_, 0), seed):
-            if all(k in by_key for k in d.derived_from):
-                chosen[d.key] = d
+            chosen[d.key] = d
     for d in list(chosen.values()):
         for k in d.derived_from:
             chosen.setdefault(k, by_key[k])
-    for type_ in QUESTION_TYPES:
+    for type_ in SOURCE_TYPES:
         have = sum(d.type == type_ for d in chosen.values())
-        rest = [d for d in pool if d.type == type_ and d.key not in chosen and not d.derived_from]
+        rest = [d for d in pool if d.type == type_ and d.key not in chosen]
         for d in balanced_pick(rest, quotas.get(type_, 0) - have, seed):
             chosen[d.key] = d
     return list(chosen.values())
@@ -121,7 +135,14 @@ def assemble(
     seed: int = SEED,
 ) -> list[Question]:
     """Questions for the gold file: selected, numbered, split and pilot-flagged."""
-    drafts = sorted(select(pool, quotas, seed), key=_sort_key)
+    return finalize(select(pool, quotas, seed), pilot_size, seed)
+
+
+def finalize(
+    selected: Sequence[Draft], pilot_size: int = PILOT_SIZE, seed: int = SEED
+) -> list[Question]:
+    """Number the selected drafts (stable order), then split and flag the pilot."""
+    drafts = sorted(selected, key=_sort_key)
     width = max(3, len(str(len(drafts))))
     key_to_id = {d.key: f"q{i:0{width}d}" for i, d in enumerate(drafts, start=1)}
     questions = [
