@@ -133,6 +133,8 @@ Sabah raporunu doldur.
 | 2026-11-17 | Tolerans sapması: yuvarlak basılmış rakamdan türeyen 4 gold soruda tolerans `eval/README.md` §3 kuralından geniş (q014, q023, q062: adet ±50.000; q092: rel 0,0193). | Kaynak rakam "25,4 milyon" / "2,6 trilyon" gibi yuvarlak; kesin rakamla verilen doğru cevap %1 / ±0 toleransla yanlış sayılırdı. Kullanıcı review'da kesin rakama çevirebilir |
 | 2026-11-17 | Baseline (T8) kuralları: model kaynak **numarası** atıf yapar, pipeline bunu atıf yapılan chunk'ın sayfa aralığındaki `{doc, page}`'lere çevirir (yalnızca modelin atıf alanından; reddetme ve netleştirmede atıf yok); model rakamı basıldığı gibi metin olarak + ölçek kelimeli birimle verir, TL/%/adet normalizasyonu kodda yapılır; üretim hatası `error` olur, uydurma reddetme olmaz. | Model chunk içindeki sayfayı bilemez; "2.202" gibi binlik ayraçlı rakamın sayı olarak okunması 1000 kat hata üretirdi; hesaplar LLM'e bırakılmaz |
 | 2026-11-17 | Pilot zorluk değerlendirmesi (eval §7 adım 9): baseline 30 pilot soruda %51,3 doğruluk (`runs/2026-11-17-baseline-pilot/`) → %15–%85 aralığında, set ne fazla kolay ne fazla zor; T6 taslakları ayarlanmadı. Baseline dev sonucu: 84 soruda %45,5 (`runs/2026-11-17-baseline-dev/`). | Plan T8 |
+| 2026-11-17 | T9 kuralları: hibrit aramada her koldan ilk 40 aday, RRF k=60 (eşitlikte chunk kimliği sırası — alfabetik olarak önce gelen banka lehine, deterministik); reranker birleşik ilk 40 adayı sıralar, metrikler için ilk 10 ve üretim için ilk 5 yeniden sıralanmış listeden alınır; metadata filtresi `bank IN (…)` ve `year IN (soruda geçen yıllar ∩ korpus yılları)`, ayrıştırma başarısızsa filtresiz; filtreli vektör aramasında pgvector `hnsw.iterative_scan = strict_order`. T9 dört adım iki uygulayıcı dispatch'iyle yapıldı (a+b, c+d); her adımın kendi commit'i ve dev koşusu var. T9e (opsiyonel) yapılmadı. | Plan T9; dispatch sayısını azaltmak kota ve süre kazandırdı. Dense aramada 40'tan fazla aday istenince sessizce 40'ta kesen bir hata T9a'da bulunup düzeltildi (önceki koşuları etkilemiyor: en fazla 10 istiyorlardı) |
+| 2026-11-17 | "T9'un en iyi pipeline'ı" = **`rerank`** (fixed chunk + hibrit + reranker): dev cevap doğruluğu 0,592 (`runs/2026-11-17-rerank-dev/`); structure 0,567, metadata_filter 0,575. T10 router'ı basit soruları `rerank`'e yollar; T12'de test split'inde baseline ile tek bir en iyi konfigürasyon çalıştırılır: `rerank`, ya da dev'de onu geçerse T10 router'ı. | Birincil ölçüt cevap doğruluğu. Üç konfigürasyon arasındaki fark 84 soruda gürültü içinde; daha basit ve recall'u en yüksek olan seçildi |
 
 ## Engeller
 
@@ -152,7 +154,9 @@ _Ara durum — son güncelleme 2026-11-17 ~21:35. Oturum sürüyor; iş bitince 
 
 **Biten görevler (kabul ölçütleri orkestratör tarafından çalıştırıldı):** T0–T8 (P0'ın tamamı).
 
-**Süren / kalan:** T9'un a ve b adımları (hybrid, rerank) bitti ve dev'de ölçüldü; c ve d adımları sürüyor. Kalanlar: T10–T12 (P1), T13–T14 (P2), final whole-branch review.
+T9 (a–d) da bitti ve dev'de ölçüldü.
+
+**Süren / kalan:** T11 (erişim kontrolü) sürüyor; kalanlar T10, T12 (P1), T13–T14 (P2), final whole-branch review.
 
 **Taslak sonuçlar — doğrulanmamış gold set (hiçbir soru `verified` değil; README/CV'ye girmez):**
 
@@ -162,6 +166,8 @@ _Ara durum — son güncelleme 2026-11-17 ~21:35. Oturum sürüyor; iş bitince 
 | baseline (fixed, dense, top-5, Haiku) | dev | 84 | 0,455 | 0,581 | 0,770 | 0,500 | $0,0013 | 7,8 s | `runs/2026-11-17-baseline-dev/` |
 | + hybrid (dense + Türkçe FTS, RRF k=60) | dev | 84 | 0,499 | 0,689 | 0,770 | 0,455 | $0,0014 | 6,7 s | `runs/2026-11-17-hybrid-dev/` |
 | + rerank (ilk 40 → bge-reranker-v2-m3) | dev | 84 | 0,592 | 0,811 | 0,919 | 0,364 | $0,0014 | 9,5 s | `runs/2026-11-17-rerank-dev/` |
+| + structure (Docling tabanlı indeks) | dev | 84 | 0,567 | 0,730 | 0,770 | 0,333 | $0,0012 | 7,9 s | `runs/2026-11-17-structure-dev/` |
+| + metadata_filter (Haiku banka/yıl → SQL filtresi) | dev | 84 | 0,575 | 0,770 | 0,838 | 0,333 | $0,0013 | 10,3 s | `runs/2026-11-17-metadata-filter-dev/` |
 
 Dev'de tip bazında cevap doğruluğu:
 
@@ -170,8 +176,17 @@ Dev'de tip bazında cevap doğruluğu:
 | baseline | 0,69 | 0,41 | 0,11 | 0,08 | 0,36 | 1,00 | 0,50 |
 | + hybrid | 0,77 | 0,45 | 0,00 | 0,08 | 0,43 | 1,00 | 0,83 |
 | + rerank | 0,77 | 0,55 | 0,11 | 0,31 | 0,63 | 1,00 | 0,83 |
+| + structure | 0,85 | 0,41 | 0,11 | 0,38 | 0,52 | 1,00 | 0,83 |
+| + metadata_filter | 0,85 | 0,45 | 0,11 | 0,38 | 0,48 | 1,00 | 0,83 |
 
-Okuma notları: gecikme cache isabetli sorular hariç ölçülür (baseline dev'de 84 sorunun 54'ü, diğerlerinde 79'u); reranker arama süresine soru başına yaklaşık 1,4 s ekliyor. Dev seti 84 soru olduğu için birkaç puanlık farklar gürültü içinde kalabilir.
+Atıf metrikleri (dev): atıf kesinliği baseline 0,37 · hybrid 0,47 · rerank 0,46 · structure 0,74 · metadata_filter 0,67; atıf recall'u 0,19 · 0,25 · 0,36 · 0,36 · 0,39.
+
+Okuma notları:
+- Dev seti 84 soru; tek bir oranın standart hatası yaklaşık 5 puan. rerank / structure / metadata_filter arasındaki 1–3 puanlık farklar gürültü içinde; baseline → rerank farkı (yaklaşık 14 puan) değil.
+- `structure` cevap doğruluğunu artırmadı, atıf kesinliğini belirgin artırdı (chunk'lar tek sayfalık). Sayfa recall'undaki düşüşün bir kısmı ölçümden kaynaklanıyor olabilir: `fixed` chunk'lar birkaç sayfaya yayıldığı için "gold sayfa chunk'ın sayfa aralığında" kuralını daha kolay tutturur. Bu doğrulanmadı.
+- Hiçbir retrieval adımı `hesaplama` sorularını çözmedi (0,00–0,11); `karsilastirma` 0,08'den 0,38'e çıktı. Bunlar T10'daki router'ın hedefi.
+- Gecikme cache isabetli sorular hariç ölçülür (baseline dev'de 84 sorunun 54'ü, metadata_filter'da 74'ü, diğerlerinde 79'u). Reranker arama süresine soru başına yaklaşık 1,4 s, metadata filtresi bir Haiku çağrısı ekliyor.
+- T9e (embedding'i `multilingual-e5-large` ile değiştirmek, opsiyonel) yapılmadı.
 
 **Kullanıcının yapması gerekenler (şimdiye kadar birikenler):**
 - Gold set'i review arayüzünden doğrula: `uv sync --group ml --group app` sonra `uv run streamlit run scripts/review_app.py`. 243 taslak var; hedef 180 soru ve en az %35'i insan yazımı.
@@ -256,7 +271,7 @@ Okuma notları: gecikme cache isabetli sorular hariç ölçülür (baseline dev'
 - **Commit:** `feat: add baseline RAG pipeline with citations and abstention`
 
 ### Task T9 — Retrieval ablation'ları (P1)
-- [ ] Tamamlandı
+- [x] Tamamlandı
 Her adım bir öncekinin üstüne eklenir ve dev'de ayrı bir run'dır:
 - a. `hybrid`: dense + Türkçe FTS, RRF → **Commit:** `feat: add hybrid retrieval with reciprocal rank fusion`
 - b. `rerank`: top-40 → bge-reranker → top-5 → **Commit:** `feat: add cross-encoder reranking`
