@@ -74,10 +74,13 @@ _ORDINALS = {
 # "DÖRDÜNCÜ BÖLÜM: MALİ BÜNYE...", "Beşinci bölüm - ...", "Yapı ve Kredi Bankası A.Ş.
 # Üçüncü Bölüm". Cross-references inside running text ("Dördüncü Bölüm II no.lu
 # dipnotta", "Bu konuda Dördüncü Bölüm'de") do not start a row, or are followed by a
-# note number or a suffix, and are not titles.
+# note number or a suffix, and are not titles. A Turkish case or plural suffix glued to
+# "bölüm" ("Birinci bölümde", "Beşinci bölümün"; -ü, -e, -de/-den, -le/-ler) marks
+# running text too. No plain word boundary: a real title can be parsed with a stray
+# letter ("BEŞİNCİ BÖLÜMs", akbank-2024 p.152).
 _SECTION = re.compile(
     r"^(?:[^.:\n]{0,60}a\.ş\.\s*)?(" + "|".join(_ORDINALS) + r") bölüm"
-    r"(?!['’])(?!\s*,)(?!\s*[ivx0-9]+(?:[.\-]\w{1,4})*\s*n(?:o|um))"
+    r"(?!ü|e|de|le)(?!['’])(?!\s*,)(?!\s*[ivx0-9]+(?:[.\-]\w{1,4})*\s*n(?:o|um))"
 )
 SECTION_ROLES = {4: RISK, 5: FOOTNOTES}
 

@@ -110,6 +110,14 @@ def test_any_risk_heading_along_the_path_counts():
         ("Dördüncü Bölüm, 7 no'lu dipnotta açıklanmıştır.", None),
         ("7.1. Gerçeğe uygun değer farkı: Dördüncü Bölüm - Konsolide bazda mali bünye", None),
         ("| Dipnot (Beşinci Bölüm) | TP |", None),
+        # a Turkish suffix on "bölüm" marks running text, not a title
+        ("Birinci bölümde açıklanan esaslar çerçevesinde", None),
+        ("Beşinci bölümün ilgili dipnotlarında", None),
+        ("Üçüncü bölümden itibaren", None),
+        ("Dördüncü bölüme ilişkin açıklamalar", None),
+        ("İkinci bölümle birlikte", None),
+        ("Beşinci bölümler halinde", None),
+        ("BEŞİNCİ BÖLÜMÜ", None),
     ],
 )
 def test_statutory_section_titles(heading, number):
