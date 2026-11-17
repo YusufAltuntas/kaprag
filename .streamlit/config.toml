@@ -1,0 +1,7 @@
+# Streamlit apps in this repo (review app, chat demo) are local tools: bind to
+# localhost only, and send no usage statistics.
+[server]
+address = "127.0.0.1"
+
+[browser]
+gatherUsageStats = false
