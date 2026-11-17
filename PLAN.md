@@ -150,7 +150,7 @@ Sabah raporunu doldur.
 
 _Ara durum — son güncelleme 2026-11-17 ~21:05. Oturum sürüyor; iş bitince bu bölüm kesinleştirilecek._
 
-**Biten görevler (kabul ölçütleri orkestratör tarafından çalıştırıldı):** T0, T1, T2, T3, T4, T5, T7, T8. T6'nın gold dosyası commit edildi; son review'dan çıkan tek kod düzeltmesi sürüyor (gold dosyasını etkilemiyor).
+**Biten görevler (kabul ölçütleri orkestratör tarafından çalıştırıldı):** T0–T8 (P0'ın tamamı).
 
 **Kalanlar:** T9–T12 (P1), T13–T14 (P2), final whole-branch review.
 
@@ -226,7 +226,7 @@ Baseline dev'de tip bazında doğruluk: olgusal 0,69 · tablo 0,41 · hesaplama 
 - **Commit:** `feat: add eval harness with retrieval, numeric and judge metrics`
 
 ### Task T6 — Gold set taslağı (P0)
-- [ ] Tamamlandı
+- [x] Tamamlandı
 - `eval/README.md` §7'deki süreç (adım 1–7, 9). Tüm sorular `author: "llm"`, `verified: false`.
 - Hedef dağılımın üstünde taslak üret (reddedilecekler için pay). Tabakalı dev/test ayrımı (seed 42) ve 30 pilot sorusu.
 - **Kabul:** `eval/gold/questions.jsonl` şemaya uyuyor; tip × split × banka dağılım tablosu basılıyor ve hedeflerle uyumlu.
