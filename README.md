@@ -219,7 +219,7 @@ uv run ruff check .
 uv run pytest -m "not gpu and not db and not llm"
 ```
 
-GitHub Actions iş akışı (`.github/workflows/ci.yml`) aynı iki komutu Windows ve macOS'ta koşacak şekilde tanımlı; depo henüz push edilmediği için GitHub'da **henüz çalışmadı**.
+GitHub Actions iş akışı (`.github/workflows/ci.yml`) aynı iki komutu her push ve pull request'te Windows ve macOS'ta koşuyor.
 
 ## Sınırlamalar
 
@@ -232,7 +232,7 @@ GitHub Actions iş akışı (`.github/workflows/ci.yml`) aynı iki komutu Window
 - **Agent yolunda ana hata kaynağı** tekil rakamların çıkarılması ve normalize edilmesidir.
 - **Havuzlama yanlılığı:** gold set'teki kanıt sayfaları kısmen, değerlendirilen retriever'ların kendisiyle tamamlandı.
 - **Dev/test arasında olgu örtüşmesi:** split (tip, banka) çiftine göre tabakalı yapıldı ve `derived_from` alanını dikkate almıyor; 156 test sorusunun 61'i bir dev sorusuyla aynı kaynak tekil soruyu paylaşıyor, 26 test `karsilastirma` sorusunun 24'ü de bunlara dahil. Karşılaştırma ve hesaplama router'ın hedef tipleri ve router dev'de seçildi; bu yüzden test seti bu tipler için tam olarak ayrı tutulmuş sayılmaz. Zarar gördüğüne dair bir işaret bulunmadı: hiçbir prompt'ta veya pipeline kodunda gold içerik yok ve router'ın test cevap puanı örtüşen sorularda 0.59, geri kalanlarda 0.73 (`runs/2026-11-17-split-overlap/overlap-after-audit.txt`).
-- **Henüz yapılmayanlar:** CI GitHub'da çalışmadı; Langfuse aktarımı birim testli ve dry-run ile kontrol edildi ama gerçek bir Langfuse sunucusuna karşı çalıştırılmadı; macOS'ta deneme yapılmadı.
+- **Henüz yapılmayanlar:** Langfuse aktarımı birim testli ve dry-run ile kontrol edildi ama gerçek bir Langfuse sunucusuna karşı çalıştırılmadı; macOS'ta yalnızca CI işi (lint ve GPU/veritabanı/LLM gerektirmeyen testler) çalıştı, pipeline'ın kendisi orada denenmedi.
 
 ## Ayrıntılar nerede
 

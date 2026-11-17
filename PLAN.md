@@ -192,7 +192,9 @@ Denetim cevap doğruluğunu konfigürasyon başına en fazla 0,01–0,02 oynatt�
 
 Aşağıdaki gece raporu tabloları denetimden **önceki** taslak set (243 soru) üzerindedir; tarihçe olarak duruyor.
 
-Hâlâ senin kararını bekleyenler: işaretli üç sorunun yeniden yazılması (q080, q090, q239); istersen 40–50 soruluk bir insan denetimi (README'deki ifade "N soruluk insan denetiminde uyum %X" olarak güçlenir); split kararı; judge kalibrasyonu; push.
+**Push ve CI (2026-11-18):** kullanıcının onayıyla `main` GitHub'a push edildi (`26af115`). Kullanıcı GitHub Actions'ın geçtiğini bildirdi (Windows + macOS matrisi); orkestratör sonucu kendisi göremedi (repo özel, tarayıcı panelinde giriş yoktu). Aşağıdaki gece raporunda "push yok" ve "CI koşmadı" diyen satırlar o anki durumu anlatır.
+
+Hâlâ senin kararını bekleyenler: işaretli üç sorunun yeniden yazılması (q080, q090, q239); istersen 40–50 soruluk bir insan denetimi (README'deki ifade "N soruluk insan denetiminde uyum %X" olarak güçlenir); split kararı; judge kalibrasyonu.
 
 **Biten görevler:** planın 15 görevinin hepsi (T0–T14). Her görevin kabul ölçütlerini orkestratör kendisi çalıştırdı; her görev ayrı bir task review'dan, bütün dal en sonda bir whole-branch review'dan geçti. Whole-branch review kritik bulgu çıkarmadı; dört önemli bulgu ve birkaç küçük düzeltme tek bir düzeltme dalgasıyla giderildi (aşağıda "Final review").
 

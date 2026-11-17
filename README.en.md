@@ -219,7 +219,7 @@ uv run ruff check .
 uv run pytest -m "not gpu and not db and not llm"
 ```
 
-A GitHub Actions workflow (`.github/workflows/ci.yml`) is defined to run the same two commands on Windows and macOS; it has **not yet run on GitHub**, because the repository has not been pushed.
+A GitHub Actions workflow (`.github/workflows/ci.yml`) runs the same two commands on Windows and macOS on every push and pull request.
 
 ## Limitations
 
@@ -232,7 +232,7 @@ A GitHub Actions workflow (`.github/workflows/ci.yml`) is defined to run the sam
 - **Main failure source on the agent path:** extracting and normalising single figures.
 - **Pooling bias:** the evidence pages in the gold set were completed partly with the same retrievers that are being evaluated.
 - **Dev/test fact overlap:** the split is stratified by (type, bank) and ignores `derived_from`; 61 of the 156 test questions share a source single-fact question with a dev question, including 24 of the 26 test `karsilastirma` questions. Comparison and calculation are the router's target types and the router was chosen on dev, so for these types the test set is not fully held out. No sign of harm was found: no gold content is in any prompt or pipeline code, and the router's test answer score is 0.59 on the overlapping questions against 0.73 on the rest (`runs/2026-11-17-split-overlap/overlap-after-audit.txt`).
-- **Not yet done:** CI has not run on GitHub; the Langfuse exporter is unit-tested and dry-run-checked but has not been run against a real Langfuse server; nothing has been tried on macOS.
+- **Not yet done:** the Langfuse exporter is unit-tested and dry-run-checked but has not been run against a real Langfuse server; on macOS only the CI job (lint and the tests that need no GPU, database or LLM) has run — the pipeline itself has not been tried there.
 
 ## Where the details live
 
