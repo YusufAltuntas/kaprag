@@ -412,6 +412,7 @@ def _trace_record(run: _QuestionRun, calls: list[dict[str, Any]], run_id: str) -
         "latency_ms": round(run.latency_ms, 1),
         "retrieval": _retrieved_summary(run.output),
         "answer": None if run.output is None else run.output.answer.model_dump(mode="json"),
+        "pipeline_debug": None if run.output is None else run.output.debug,
         "llm_calls": [{"role": "judge" if _is_judge(c) else "pipeline", **c} for c in calls],
         "judge": {"task": run.judge_task, "verdict": run.judge_verdict, "error": run.judge_error},
     }

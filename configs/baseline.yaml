@@ -1,0 +1,21 @@
+# Baseline RAG: fixed-size chunks, dense search only, top-5 chunks into one Haiku call.
+# Every ablation is a copy of this file with one block changed (see kaprag.rag.config).
+description: "Baseline RAG - fixed chunks, dense bge-m3 search only, top-5 context, claude-haiku-5-5 generation"
+topic: baseline
+pipeline:
+  factory: rag
+  params:
+    index: fixed
+    retrieval:
+      mode: dense
+    retrieve_k: 10
+    context_k: 5
+    generation:
+      model: claude-haiku-5-5
+    embedding:
+      model: BAAI/bge-m3
+      device: cuda
+judge:
+  kind: llm
+  model: claude-sonnet-5-5
+concurrency: 4

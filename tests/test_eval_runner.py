@@ -294,3 +294,33 @@ def test_untagged_calls_are_reported_as_unattributed(tmp_dir):
     result = run(cfg, tmp_dir, llm_factory=llm_factory(backend, None), limit=2)
     assert result.summary["unattributed_llm_calls"]["n"] == 2
     assert result.summary["overall"]["operational"]["cost_usd_total"] == 0
+
+
+class DebugPipeline:
+    """Oracle answers plus pipeline diagnostics; fails on `raise_on`."""
+
+    def __init__(self, ctx):
+        self.ctx = ctx
+        self.oracle = FakeOraclePipeline(ctx.gold, error_rate=0, fail_rate=0, seed=0)
+
+    async def run(self, question, *, tags):
+        if self.ctx.params.get("raise_on") == tags["qid"]:
+            raise RuntimeError("boom")
+        output = await self.oracle.run(question, tags=tags)
+        return output.model_copy(update={"debug": {"note": f"debug {tags['qid']}"}})
+
+
+@register_pipeline("test_debug")
+def build_debug(ctx):
+    return DebugPipeline(ctx)
+
+
+def test_pipeline_debug_goes_to_traces_only(tmp_dir):
+    cfg = config(factory="test_debug", params={"raise_on": "f002"})
+    result = run(cfg, tmp_dir, limit=2)
+    traces = {t["qid"]: t for t in read_jsonl(result.run_dir / "traces.jsonl")}
+    assert traces["f001"]["pipeline_debug"] == {"note": "debug f001"}
+    assert traces["f002"]["pipeline_debug"] is None
+    rows = read_jsonl(result.run_dir / "results.jsonl")
+    answered = [r for r in rows if r["answer"]]
+    assert all("pipeline_debug" not in r and "debug" not in r["answer"] for r in answered)
