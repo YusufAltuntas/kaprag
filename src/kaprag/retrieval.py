@@ -1,7 +1,8 @@
 """Search primitives over one chunk table: dense (pgvector HNSW) and Turkish full-text.
 
 Both return the top-k `SearchHit`s best first; `SearchHit.to_retrieved_item()` gives
-the eval harness's `RetrievedItem`. Fusion and reranking are composed by later steps.
+the eval harness's `RetrievedItem`. `rrf_fuse` merges ranked lists (reciprocal rank
+fusion); building a hybrid pipeline around it and reranking are later steps.
 
 Filters: both functions take an optional `where` SQL condition (a `psycopg.sql`
 Composable, e.g. `sql.SQL("bank = {}").format(sql.Literal("akbank"))`). It is ANDed
@@ -34,6 +35,7 @@ from kaprag.eval.pipeline import RetrievedItem
 from kaprag.index.store import table_name
 
 DEFAULT_HNSW_EF_SEARCH = 40
+RRF_K = 60
 
 
 @dataclass(frozen=True)
@@ -165,3 +167,19 @@ def _search(
         )
         for chunk_id, doc_id, page_start, page_end, score, chunk_type, section_path, text in rows
     ]
+
+
+def rrf_fuse(
+    rankings: Sequence[Sequence[SearchHit]], k: int = RRF_K
+) -> list[tuple[SearchHit, float]]:
+    """Reciprocal rank fusion: score(chunk) = sum over lists of 1 / (k + rank), rank
+    1-based. Returns (hit, fused score) best first, ties by chunk id; a chunk found
+    in several lists keeps the hit object of the first list it appears in."""
+    scores: dict[str, float] = {}
+    hits: dict[str, SearchHit] = {}
+    for ranking in rankings:
+        for rank, hit in enumerate(ranking, start=1):
+            hits.setdefault(hit.chunk_id, hit)
+            scores[hit.chunk_id] = scores.get(hit.chunk_id, 0.0) + 1.0 / (k + rank)
+    order = sorted(scores, key=lambda cid: (-scores[cid], cid))
+    return [(hits[cid], scores[cid]) for cid in order]
