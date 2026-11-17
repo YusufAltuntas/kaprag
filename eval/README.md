@@ -38,7 +38,8 @@ Cevapsız soruların payı (~%14) bilinçli: bu oran yoksa sistem "her şeye cev
  "evidence": [{"doc": "yapikredi-2025", "page": null}],
  "key_points": [],
  "derived_from": [],
- "author": "llm", "llm_checked": true, "verified": false, "verified_at": null, "notes": ""}
+ "author": "llm", "llm_checked": true, "verified": false, "verified_at": null,
+ "audit": {"status": "passed", "by": "agent", "at": "2026-11-18", "note": ""}, "notes": ""}
 ```
 
 | Alan | Açıklama |
@@ -52,6 +53,7 @@ Cevapsız soruların payı (~%14) bilinçli: bu oran yoksa sistem "her şeye cev
 | `author` | `llm` ya da `human`. |
 | `llm_checked` | Taslak, ikinci bir LLM çağrısıyla sayfaya karşı kontrol edildi mi. Doğrulama **sayılmaz**. |
 | `verified` | Yalnızca kullanıcı, review arayüzünden PDF sayfasına bakarak `true` yapar. Agent asla yapmaz. |
+| `audit` | `null` (denetlenmedi) ya da bağımsız bir agent'ın sayfa görüntüsüne karşı denetimi: `{"status", "by": "agent", "at": "YYYY-MM-DD", "note"}`. `passed` sorun bulunmadı · `fixed` düzeltmeleri uygulandı · `flagged` insan kararı gerekiyor, satır değiştirilmedi. Yalnızca `scripts/apply_audit.py` yazar; review arayüzü salt okunur gösterir. **Doğrulama sayılmaz**, `verified`'ı değiştirmez. Denetlenmiş alt küme = `passed` + `fixed`. |
 
 ## 4. Puanlama kuralları
 
@@ -83,7 +85,7 @@ Pipeline her soruya yapılandırılmış çıktı döner; sayısal puanlama böy
 - **Davranış doğruluğu:** `abstain` sorularında doğru reddetme oranı; `answer` sorularında yanlış reddetme oranı; `clarify` ve `answer_with_assumption` sorularında beklenen davranış gösterildi mi. Doğru reddetme ile yanlış reddetme her zaman birlikte raporlanır.
 - **Operasyonel:** soru başına API-eşdeğeri maliyet (token × liste fiyatı), p50/p95 gecikme (cache isabetleri hariç).
 
-**Raporlama:** Her metrik hem tüm sette hem `verified: true` alt kümesinde hesaplanır. README ve CV'ye yalnızca doğrulanmış alt kümenin sayıları girer.
+**Raporlama:** Her metrik hem tüm sette hem `verified: true` alt kümesinde hesaplanır. README ve CV'ye yalnızca doğrulanmış alt kümenin sayıları girer. Metrikler ayrıca agent denetiminden geçmiş alt kümede (`audited`: `audit.status` `passed`/`fixed`) hesaplanır; agent denetimi insan doğrulaması değildir.
 
 ## 7. Gold set üretimi
 
