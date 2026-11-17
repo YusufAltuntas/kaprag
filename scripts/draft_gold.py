@@ -5,6 +5,9 @@ Every draft is `author: llm`, `verified: false`; only the user verifies, in the 
 Run (full; resumable - re-running replays cached LLM calls and continues failed ones):
   uv run python scripts/draft_gold.py runs/2026-11-17-gold-draft --out eval/gold/questions.jsonl
 
+An existing `--out` file is replaced only with `--overwrite`, and never when it holds a
+verified or human-authored question (those come only from the review app).
+
 Smoke (tiny scale, same code):
   uv run python scripts/draft_gold.py runs/2026-11-17-gold-draft-smoke \
       --out runs/2026-11-17-gold-draft-smoke/questions.jsonl \
@@ -29,6 +32,7 @@ from dotenv import load_dotenv
 
 from kaprag.corpus import REPO_ROOT, read_manifest
 from kaprag.gold.assemble import DEFAULT_QUOTAS
+from kaprag.gold.guard import overwrite_refusal
 from kaprag.gold.metrics import METRICS, METRICS_BY_ID
 from kaprag.gold.pipeline import Pipeline, RunConfig, trace_summary
 from kaprag.gold.search import open_searcher, table_complete
@@ -51,6 +55,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("run_dir", type=Path, help="run folder, e.g. runs/2026-11-17-gold-draft")
     parser.add_argument("--out", type=Path, required=True, help="questions JSONL to write")
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="replace an existing --out file (never one with verified or human questions)",
+    )
     parser.add_argument("--docs", default="", help="comma-separated doc ids (default: all)")
     parser.add_argument("--table-pages", type=int, default=4, help="table pages per document")
     parser.add_argument("--text-pages", type=int, default=4, help="text pages per document")
@@ -68,6 +77,9 @@ def main() -> int:
     parser.add_argument("--evidence-model", default="claude-haiku-5-5")
     args = parser.parse_args()
 
+    if refusal := overwrite_refusal(args.out, overwrite=args.overwrite):
+        print(refusal, file=sys.stderr)
+        return 2
     backend = os.environ.get("LLM_BACKEND", "claude_code")
     if backend == "claude_code" and os.environ.get("ANTHROPIC_API_KEY"):
         print("ANTHROPIC_API_KEY is set; unset it for the claude_code backend", file=sys.stderr)

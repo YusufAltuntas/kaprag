@@ -1,13 +1,17 @@
 """End-to-end drafting run on synthetic pages with a fake LLM and a fake searcher."""
 
 import asyncio
+import importlib.util
 import json
 import re
+import sys
+from pathlib import Path
 
 from gold_helpers import FakeClient, FakeSearcher, write_parsed
 
 from kaprag.corpus import Document
 from kaprag.eval.schema import load_questions
+from kaprag.gold.guard import overwrite_refusal
 from kaprag.gold.metrics import METRICS_BY_ID
 from kaprag.gold.pipeline import Pipeline, RunConfig
 from kaprag.llm import LLMCallError, Usage
@@ -329,3 +333,62 @@ def test_search_failure_is_logged_and_the_run_continues(tmp_dir):
         and q.notes.startswith("probe")
         for q in questions
     )
+
+
+# --- overwrite guard (scripts/draft_gold.py --out / --overwrite) ---------------------------
+
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "draft_gold.py"
+
+
+def _gold_row(qid, *, verified=False, author="llm"):
+    return json.dumps({"id": qid, "author": author, "verified": verified}) + "\n"
+
+
+def _draft_gold_main(monkeypatch, argv):
+    spec = importlib.util.spec_from_file_location("draft_gold_under_test", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    def no_llm(*_, **__):
+        raise AssertionError("the guard must run before any LLM client is created")
+
+    monkeypatch.setattr(module, "create_client", no_llm)
+    monkeypatch.setattr(module, "table_complete", no_llm)
+    monkeypatch.setattr(sys, "argv", ["draft_gold.py", *argv])
+    return module.main()
+
+
+def test_overwrite_guard_allows_a_fresh_path(tmp_dir):
+    assert overwrite_refusal(tmp_dir / "new.jsonl", overwrite=False) is None
+    assert overwrite_refusal(tmp_dir / "new.jsonl", overwrite=True) is None
+
+
+def test_overwrite_guard_refuses_an_existing_file_without_the_flag(tmp_dir):
+    out = tmp_dir / "questions.jsonl"
+    out.write_text(_gold_row("q1"), encoding="utf-8")
+    assert "--overwrite" in overwrite_refusal(out, overwrite=False)
+    assert overwrite_refusal(out, overwrite=True) is None  # drafts only: the flag allows it
+
+
+def test_overwrite_guard_refuses_verified_or_human_rows_even_with_the_flag(tmp_dir):
+    verified = tmp_dir / "verified.jsonl"
+    verified.write_text(_gold_row("q1") + _gold_row("q2", verified=True), encoding="utf-8")
+    human = tmp_dir / "human.jsonl"
+    human.write_text(_gold_row("q1") + "\n" + _gold_row("q3", author="human"), encoding="utf-8")
+    for path in (verified, human):
+        for flag in (False, True):
+            assert overwrite_refusal(path, overwrite=flag) is not None
+    assert "q2" in overwrite_refusal(verified, overwrite=True)
+    assert "q3" in overwrite_refusal(human, overwrite=True)
+
+
+def test_draft_gold_cli_exits_2_before_any_llm_call(tmp_dir, monkeypatch, capsys):
+    out = tmp_dir / "questions.jsonl"
+    out.write_text(_gold_row("q1", verified=True), encoding="utf-8")
+    before = out.read_bytes()
+    argv = [str(tmp_dir / "run"), "--out", str(out)]
+    assert _draft_gold_main(monkeypatch, argv) == 2
+    assert _draft_gold_main(monkeypatch, [*argv, "--overwrite"]) == 2
+    assert out.read_bytes() == before
+    assert not (tmp_dir / "run").exists()
+    assert "verified" in capsys.readouterr().err
