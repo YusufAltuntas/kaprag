@@ -1,0 +1,38 @@
+# T10: agent router (kaprag.agent). The `rag` block is configs/rerank.yaml's params
+# unchanged (pinned by a test): simple questions get exactly the rerank pipeline, and
+# comparison/calculation look-ups use the same retrieval stack and generation prompt.
+description: "Agent router - Haiku classify; simple -> rerank pipeline; comparison/calculation -> Sonnet decompose, per look-up rerank retrieval with bank/report-year filter + Haiku extraction, Python calculation, Haiku synthesis"
+topic: router
+pipeline:
+  factory: router
+  params:
+    rag:
+      index: fixed
+      retrieval:
+        mode: hybrid
+        candidates_per_arm: 40
+        rrf_k: 60
+      rerank:
+        model: BAAI/bge-reranker-v2-m3
+        device: cuda
+        candidates: 40
+        batch_size: 8
+        max_length: 1024
+      retrieve_k: 10
+      context_k: 5
+      generation:
+        model: claude-haiku-5-5
+      embedding:
+        model: BAAI/bge-m3
+        device: cuda
+    classify:
+      model: claude-haiku-5-5
+    decompose:
+      model: claude-sonnet-5-5
+      max_lookups: 8
+    synthesize:
+      model: claude-haiku-5-5
+judge:
+  kind: llm
+  model: claude-sonnet-5-5
+concurrency: 4

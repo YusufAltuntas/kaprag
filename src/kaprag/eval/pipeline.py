@@ -88,7 +88,7 @@ PipelineFactory = Callable[[PipelineContext], Pipeline]
 
 _REGISTRY: dict[str, PipelineFactory] = {}
 # Modules whose import registers built-in pipelines.
-_BUILTIN_MODULES = ("kaprag.eval.fake_pipeline", "kaprag.rag.pipeline")
+_BUILTIN_MODULES = ("kaprag.eval.fake_pipeline", "kaprag.rag.pipeline", "kaprag.agent.pipeline")
 
 
 def register_pipeline(name: str) -> Callable[[PipelineFactory], PipelineFactory]:

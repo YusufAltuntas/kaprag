@@ -85,13 +85,16 @@ async def generate(
     *,
     model: str,
     tags: dict[str, Any],
+    step: str = "generate",
 ) -> GeneratedAnswer:
-    """One schema-validated LLM call. `LLMCallError` propagates to the caller."""
+    """One schema-validated LLM call tagged `{**tags, "step": step}` (the agent router
+    reuses it for its per-look-up `sub_answer` calls). `LLMCallError` propagates to
+    the caller."""
     result = await client.complete(
         SYSTEM_PROMPT,
         build_user_prompt(question, context),
         model,
         schema=GeneratedAnswer,
-        tags={**tags, "step": "generate"},
+        tags={**tags, "step": step},
     )
     return result.parsed
