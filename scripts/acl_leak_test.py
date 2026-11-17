@@ -17,6 +17,8 @@ ignored: the role is `--role`.
 - Positive control: the same queries with the access filter OFF; the number of queries
   whose list holds chunks the role may not see. A control with 0 such queries proves
   nothing (e.g. roles not assigned yet): exit code 2.
+- An empty filtered list (the filter starved retrieval) also proves nothing: exit code 2.
+  The verdict is `kaprag.access.leak.verdict`.
 
 Output: `runs/YYYY-MM-DD-acl-leak-<config>-<role>[-<schema>][-N]/` with `README.md`,
 `results.jsonl` (per query: filtered and control lists with roles, leaks) and
@@ -33,7 +35,13 @@ from dotenv import load_dotenv
 from psycopg import sql
 
 from kaprag.access.filter import access_filter
-from kaprag.access.leak import DEFAULT_LEAK_QUERIES, check_query, load_leak_queries, summarize
+from kaprag.access.leak import (
+    DEFAULT_LEAK_QUERIES,
+    check_query,
+    load_leak_queries,
+    summarize,
+    verdict,
+)
 from kaprag.access.roles import ROLES, effective_roles
 from kaprag.corpus import REPO_ROOT
 from kaprag.eval.config import load_config
@@ -177,12 +185,10 @@ def main() -> int:
     )
     for kind, n in by_attack.items():
         print(f"  {kind}: {n}")
-    if leaks["queries_with_leaks"]:
-        return 1
-    if not control["queries_with_leaks"]:
-        print("positive control found no restricted chunk: the test proves nothing")
-        return 2
-    return 0
+    code, reason = verdict(results, controls)
+    if reason is not None:
+        print(reason)
+    return code
 
 
 if __name__ == "__main__":

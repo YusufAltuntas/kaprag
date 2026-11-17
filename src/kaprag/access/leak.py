@@ -81,3 +81,19 @@ def summarize(results: Sequence[QueryResult]) -> dict:
         "leaking_query_ids": [r.id for r in leaking],
         "leaked_chunk_ids": sorted({cid for r in leaking for cid in r.leaked}),
     }
+
+
+def verdict(
+    results: Sequence[QueryResult], controls: Sequence[QueryResult]
+) -> tuple[int, str | None]:
+    """Exit code of the leak test and why it is not 0: 1 when any filtered list leaks;
+    2 when the pass would prove nothing, i.e. a filtered list is empty (the filter
+    starved retrieval) or the positive control (filter off) found no restricted chunk;
+    else (0, None)."""
+    if leaking := [r.id for r in results if r.leaked]:
+        return 1, f"{len(leaking)} queries leak: {leaking}"
+    if empty := [r.id for r in results if not r.retrieved]:
+        return 2, f"filtered list empty for {empty}: the test proves nothing"
+    if not any(c.leaked for c in controls):
+        return 2, "positive control found no restricted chunk: the test proves nothing"
+    return 0, None

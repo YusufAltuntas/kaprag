@@ -10,6 +10,7 @@ from kaprag.access.leak import (
     check_query,
     load_leak_queries,
     summarize,
+    verdict,
 )
 
 ROLES_OF = {
@@ -61,6 +62,38 @@ def test_summary_counts_leaking_queries_and_chunks():
         "leaking_query_ids": ["acl01", "acl03"],
         "leaked_chunk_ids": ["a:fixed:2", "a:fixed:3"],
     }
+
+
+def _result(qid, ranked, role="public"):
+    return check_query(Q.model_copy(update={"id": qid}), ranked, ROLES_OF, role)
+
+
+CONTROL = [_result("acl01", ["a:fixed:1", "a:fixed:3"]), _result("acl02", ["a:fixed:4"])]
+
+
+def test_verdict_passes_with_no_leaks_full_lists_and_a_positive_control():
+    results = [_result("acl01", ["a:fixed:1"]), _result("acl02", ["a:fixed:4"])]
+    assert verdict(results, CONTROL) == (0, None)
+
+
+def test_verdict_fails_on_a_leak():
+    results = [_result("acl01", ["a:fixed:1", "a:fixed:3"]), _result("acl02", [])]
+    code, reason = verdict(results, CONTROL)
+    assert code == 1 and "leak" in reason
+
+
+def test_verdict_refuses_an_empty_filtered_list():
+    # 0 leaks, but the filter starved a query's list to nothing: the pass would be vacuous
+    results = [_result("acl01", ["a:fixed:1"]), _result("acl02", [])]
+    code, reason = verdict(results, CONTROL)
+    assert code == 2 and "acl02" in reason
+
+
+def test_verdict_refuses_a_positive_control_without_restricted_chunks():
+    results = [_result("acl01", ["a:fixed:1"]), _result("acl02", ["a:fixed:4"])]
+    control = [_result("acl01", ["a:fixed:1"]), _result("acl02", ["a:fixed:4"])]
+    code, reason = verdict(results, control)
+    assert code == 2 and "positive control" in reason
 
 
 def test_load_leak_queries_validates(tmp_dir):
