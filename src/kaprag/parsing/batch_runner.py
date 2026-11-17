@@ -140,7 +140,7 @@ def run_jobs(
                 continue
             try:
                 write_jsonl_atomic(part_path(out_dir, job.doc_id, first, last), rows)
-            except OSError as e:
+            except Exception as e:  # isolate the failure to this range
                 doc_failed = True
                 failed_pages += last - first + 1
                 error = f"writing part failed: {type(e).__name__}: {e}"

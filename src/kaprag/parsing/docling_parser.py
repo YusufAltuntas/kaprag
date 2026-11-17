@@ -18,7 +18,7 @@ Output rows follow the Docling schema in `kaprag.parsing.outputs`. How they are 
 - Docling joins a line ending in "-" to the next line without the hyphen
   (de-hyphenation). Between two numbers that turns a range wrapped over a line
   ("2013-" / "2022") into one wrong number ("20132022"); `keep_numeric_line_hyphens`
-  keeps such hyphens, giving "2013- 2022".
+  keeps such hyphens, giving "2013-  2022" (two spaces).
 - List items carry their marker (e.g. "1.") in front of the text, as in the PDF.
 - A table becomes one row: its Markdown export (column padding removed, see
   `compact_markdown_table`) as `text`; captions Docling linked
@@ -81,7 +81,8 @@ def compact_markdown_table(markdown: str) -> str:
 def keep_numeric_line_hyphens(lines: list[str]) -> list[str]:
     """Protect a line-final hyphen between two numbers from Docling's de-hyphenation.
 
-    A space after the hyphen makes Docling join the lines as usual but keep the "-".
+    A space after the hyphen makes Docling join the lines as usual but keep the "-",
+    followed by two spaces (ours and the one Docling adds at the line break).
     """
     out = list(lines)
     for ix in range(len(out) - 1):
@@ -111,28 +112,39 @@ def _label(item) -> str:
     return str(getattr(label, "value", label))
 
 
+def _in_picture(item, doc) -> bool:
+    """True if `item` lies inside a picture, judged by its parent chain.
+
+    A picture's own caption is not picture text; text inside a picture nested in
+    another picture is.
+    """
+    child, parent_ref = item, item.parent
+    while parent_ref is not None:
+        parent = parent_ref.resolve(doc)
+        if _label(parent) in _SKIPPED_LABELS and not (
+            child is item and item.self_ref in {ref.cref for ref in parent.captions}
+        ):
+            return True
+        child, parent_ref = parent, parent.parent
+    return False
+
+
 def items_to_part_rows(items: Iterable[tuple], doc) -> list[dict]:
     """Map Docling items (in reading order) to part rows (rows without `section_path`).
 
     `items` are `(item, depth)` pairs as yielded by `DoclingDocument.iterate_items`
-    with `traverse_pictures=True`; `doc` is the document they belong to (needed for
-    table Markdown and captions). An item is inside a picture if it follows the
-    picture at a greater depth and is not one of the picture's captions.
+    with `traverse_pictures=True` (the depth is not used); `doc` is the document they
+    belong to (needed for table Markdown, captions and parent references).
     """
-    items = list(items)
+    items = [item for item, _ in items]
     table_caption_refs = {
-        ref.cref for item, _ in items if _label(item) in TABLE_LABELS for ref in item.captions
+        ref.cref for item in items if _label(item) in TABLE_LABELS for ref in item.captions
     }
     rows: list[dict] = []
     last_page = None
-    open_pictures: list[tuple[int, set[str]]] = []  # (depth, caption refs) of enclosing pictures
-    for item, depth in items:
-        while open_pictures and depth <= open_pictures[-1][0]:
-            open_pictures.pop()
+    for item in items:
         label = _label(item)
-        in_picture = any(item.self_ref not in captions for _, captions in open_pictures)
         if label in _SKIPPED_LABELS:
-            open_pictures.append((depth, {ref.cref for ref in item.captions}))
             continue
         if item.self_ref in table_caption_refs:
             continue
@@ -153,6 +165,7 @@ def items_to_part_rows(items: Iterable[tuple], doc) -> list[dict]:
                 continue
             pages = [last_page]
         last_page = pages[-1]
+        in_picture = _in_picture(item, doc)
         level = None
         if label == "title":
             level = 0
