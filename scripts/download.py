@@ -38,7 +38,7 @@ def download(update_manifest: bool) -> int:
     for o in outcomes:
         print(f"{o.status.value:<10} {o.doc_id}: {o.detail}")
     if update_manifest:
-        write_manifest(with_file_facts(docs, DEFAULT_RAW_DIR), DEFAULT_MANIFEST)
+        write_manifest(with_file_facts(docs, outcomes, DEFAULT_RAW_DIR), DEFAULT_MANIFEST)
         print(f"manifest updated: {DEFAULT_MANIFEST}")
     failed = [o for o in outcomes if o.status is Status.FAILED]
     downloaded = sum(o.status is Status.DOWNLOADED for o in outcomes)

@@ -4,7 +4,7 @@ import httpx
 import pymupdf
 import pytest
 
-from kaprag.corpus import Document, raw_path
+from kaprag.corpus import Document, check_document, raw_path
 from kaprag.download import (
     DownloadError,
     Status,
@@ -24,6 +24,14 @@ def sha(data: bytes) -> str:
 def doc(doc_id="akbank-2024", sha256=None) -> Document:
     bank, year = doc_id.rsplit("-", 1)
     return Document(doc_id, bank, int(year), f"https://example.test/{doc_id}.pdf", sha256, None, "")
+
+
+def make_pdf(path, pages: int) -> None:
+    pdf = pymupdf.open()
+    for _ in range(pages):
+        pdf.new_page()
+    pdf.save(path)
+    pdf.close()
 
 
 def fake_client(routes: dict[str, httpx.Response], calls: list[str] | None = None) -> httpx.Client:
@@ -128,13 +136,24 @@ def test_fetch_all_reports_network_errors(tmp_dir):
 
 
 def test_with_file_facts_fills_hash_and_pages(tmp_dir):
-    pdf = pymupdf.open()
-    for _ in range(3):
-        pdf.new_page()
-    pdf.save(raw_path("akbank-2024", tmp_dir))
-    pdf.close()
+    make_pdf(raw_path("akbank-2024", tmp_dir), pages=3)
     data = raw_path("akbank-2024", tmp_dir).read_bytes()
 
-    filled, untouched = with_file_facts([doc("akbank-2024"), doc("akbank-2025")], tmp_dir)
+    filled, untouched = with_file_facts([doc("akbank-2024"), doc("akbank-2025")], [], tmp_dir)
     assert (filled.sha256, filled.pages) == (sha(data), 3)
     assert (untouched.sha256, untouched.pages) == (None, None)
+
+
+def test_update_keeps_manifest_hash_when_download_of_corrupted_file_fails(tmp_dir):
+    # Regression: a corrupted local file whose re-download fails must not have
+    # its hash written to the manifest (that would make --verify pass).
+    good = doc(sha256=sha(PDF))
+    make_pdf(raw_path(good.doc_id, tmp_dir), pages=1)  # valid PDF, wrong content
+    docs = [good]
+    with fake_client({}) as client:  # every request gets 404
+        outcomes = fetch_all(docs, tmp_dir, client, check_sha256=False)
+    assert outcomes[0].status is Status.FAILED
+
+    (updated,) = with_file_facts(docs, outcomes, tmp_dir)
+    assert updated == good
+    assert check_document(updated, tmp_dir).startswith("sha256 mismatch")

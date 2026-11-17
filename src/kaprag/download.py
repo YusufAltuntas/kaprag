@@ -99,12 +99,19 @@ def fetch_all(
     return [fetch(doc, raw_dir, client, check_sha256) for doc in docs]
 
 
-def with_file_facts(docs: list[Document], raw_dir: Path) -> list[Document]:
-    """Fill `sha256` and `pages` from the local files; rows without a file are unchanged."""
+def with_file_facts(
+    docs: list[Document], outcomes: list[Outcome], raw_dir: Path
+) -> list[Document]:
+    """Fill `sha256` and `pages` from the local files.
+
+    Rows without a file, and rows whose fetch failed (a stale or corrupted file
+    may still be on disk), keep their manifest values.
+    """
+    failed = {o.doc_id for o in outcomes if o.status is Status.FAILED}
     out = []
     for doc in docs:
         path = raw_path(doc.doc_id, raw_dir)
-        if path.is_file():
+        if doc.doc_id not in failed and path.is_file():
             doc = replace(doc, sha256=sha256_file(path), pages=pdf_page_count(path))
         out.append(doc)
     return out
