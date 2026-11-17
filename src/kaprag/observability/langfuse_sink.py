@@ -26,6 +26,10 @@ from typing import Any
 from kaprag.observability.langfuse_mapping import ObservationItem, ScoreItem, TraceItem
 
 INSTALL_HINT = "uv sync --group ml --group app --group observability"
+# Trace metadata copied to every span, as `propagate_attributes` does, must encode to at
+# most this many characters (SDK rule); these keys and longer values stay on the root.
+PROPAGATED_METADATA_MAX_CHARS = 200
+ROOT_ONLY_METADATA = frozenset({"pipeline_params", "description"})
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
@@ -90,7 +94,15 @@ def _metadata_attributes(prefix: str, metadata: Mapping[str, Any]) -> dict[str, 
 class LangfuseSink:
     """Sends export items to one Langfuse project. Construct only for a real export."""
 
-    def __init__(self, settings: LangfuseSettings, *, timeout_s: float = 30.0) -> None:
+    def __init__(
+        self,
+        settings: LangfuseSettings,
+        *,
+        timeout_s: float = 30.0,
+        client: Any = None,
+        exporter: Any = None,
+    ) -> None:
+        """`client` / `exporter` replace the `Langfuse` client and the OTLP exporter (tests)."""
         try:
             import langfuse
             from langfuse import Langfuse, LangfuseOtelSpanAttributes
@@ -117,16 +129,20 @@ class LangfuseSink:
         self._ScoreRequest = CreateScoreRequest
         self._ScoreRejections = CreateScoreBatchResults
 
-        self._client = Langfuse(
+        self._client = client or Langfuse(
             public_key=settings.public_key,
             secret_key=settings.secret_key,
             base_url=settings.host,
             timeout=int(timeout_s),
         )
-        self._client.auth_check()  # raises on wrong keys / unreachable host
+        try:
+            self._client.auth_check()  # raises on wrong keys / unreachable host
+        except Exception:
+            self._client.shutdown()
+            raise
 
         auth = base64.b64encode(f"{settings.public_key}:{settings.secret_key}".encode()).decode()
-        self._exporter = OTLPSpanExporter(
+        self._exporter = exporter or OTLPSpanExporter(
             endpoint=f"{settings.host}/api/public/otel/v1/traces",
             headers={
                 "Authorization": f"Basic {auth}",
@@ -205,11 +221,21 @@ class LangfuseSink:
                 attributes[a.OBSERVATION_USAGE_DETAILS] = _json(obs.usage_details)
             if obs.cost_details is not None:
                 attributes[a.OBSERVATION_COST_DETAILS] = _json(obs.cost_details)
-        if obs.parent_id is None:  # the root carries the trace attributes
-            attributes[a.TRACE_NAME] = trace.name
-            attributes[a.TRACE_TAGS] = list(trace.tags)
-            attributes[a.TRACE_SESSION_ID] = trace.session_id
-            attributes.update(_metadata_attributes(a.TRACE_METADATA, trace.metadata))
+        # Trace attributes go on every span, as `propagate_attributes` would set them:
+        # Langfuse aggregations (cost by session, tag or trace name) only count
+        # observations that carry them. Large metadata values stay on the root.
+        attributes[a.TRACE_NAME] = trace.name
+        attributes[a.TRACE_TAGS] = list(trace.tags)
+        attributes[a.TRACE_SESSION_ID] = trace.session_id
+        trace_metadata = _metadata_attributes(a.TRACE_METADATA, trace.metadata)
+        if obs.parent_id is not None:
+            trace_metadata = {
+                key: value
+                for key, value in trace_metadata.items()
+                if key.removeprefix(f"{a.TRACE_METADATA}.") not in ROOT_ONLY_METADATA
+                and len(value) <= PROPAGATED_METADATA_MAX_CHARS
+            }
+        attributes.update(trace_metadata)
         status = (
             self._Status(self._StatusCode.ERROR, obs.status_message)
             if obs.level == "ERROR"

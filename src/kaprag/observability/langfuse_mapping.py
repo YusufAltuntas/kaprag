@@ -8,8 +8,9 @@ API-equivalent `cost_usd`, timestamps are the recorded ones).
 Per question (one `traces.jsonl` record) one trace:
 
 - root span `<qid>`: input = question, output = structured answer, ERROR when the
-  question failed. It carries the trace attributes: name = config name, session =
-  run folder, tags, metadata = run config + question fields.
+  question failed. Trace attributes: name = config name, session = run folder,
+  tags, metadata = run config + question fields (the sink also copies them, minus
+  large metadata values, to every span).
 - `retrieval` (retriever): the retrieved chunks with scores; `context_chunk_ids` and
   `retrieval_trace` from `pipeline_debug` as metadata. Retrieval time is not recorded,
   so its bounds are inferred (between the last pipeline call before the first

@@ -7,6 +7,9 @@ One-way and display-only: the run's JSONL stays the source of truth. A trace tha
 already exists in Langfuse (same deterministic id) is skipped, since Langfuse treats
 ingested observations as immutable and would store a re-sent one twice; scores are
 always re-sent with the same id, name and timestamp, which Langfuse overwrites.
+The existence check only sees ingested data, so re-exporting within Langfuse's
+ingestion lag (about 15-30 s), or after a timed-out send the server did ingest,
+duplicates those traces.
 
 Exit codes: 0 everything exported (or built, with --dry-run); 1 some lines or traces
 could not be exported (each reported on stderr, the rest is exported); 2 usage error,
@@ -45,7 +48,11 @@ def _default_sink_factory() -> Sink:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Export a finished kaprag run to Langfuse.")
+    parser = argparse.ArgumentParser(
+        description="Export a finished kaprag run to Langfuse.",
+        epilog="Traces already in Langfuse are skipped and scores overwritten; re-exporting "
+        "within Langfuse's ingestion lag (about 15-30 s) duplicates traces.",
+    )
     parser.add_argument("--run", required=True, type=Path, help="run folder: runs/<folder>")
     parser.add_argument("--limit", type=int, default=None, help="only the first N questions")
     parser.add_argument(
