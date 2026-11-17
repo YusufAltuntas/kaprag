@@ -69,7 +69,7 @@ Gece oturumu orkestratördür: kodu kendisi yazmaz, görevleri alt agent'lara ve
 - [x] Docker Desktop kurulu ve açık: `docker info` hata vermiyor. _(2026-11-17: motor kapalıydı, başlatıldı; Server 27.5.1, 16 CPU, ~7.6 GB RAM)_
 - [x] `nvidia-smi` GPU'yu gösteriyor. _(2026-11-17: RTX 3050 Laptop, 4 GB VRAM, sürücü 591.74, CUDA 13.1)_
 - [x] `uv --version` çalışıyor (yoksa PowerShell'de `python -m pip install uv`). _(2026-11-17: yoktu, `pip install --user uv` ile kuruldu → uv 0.13.9; Python 3.11.2)_
-- [ ] Claude Code CLI kurulu ve aboneliğe giriş yapılmış: `claude -p "merhaba"` cevap veriyor. CLI yoksa PowerShell'de: `irm https://claude.ai/install.ps1 | iex`, ardından `claude` ile giriş. _(2026-11-17: CLI 2.1.5 → 2.1.318'e güncellendi; giriş oturumu süresi dolmuş — bkz. Engeller)_
+- [x] Claude Code CLI kurulu ve aboneliğe giriş yapılmış: `claude -p "merhaba"` cevap veriyor. CLI yoksa PowerShell'de: `irm https://claude.ai/install.ps1 | iex`, ardından `claude` ile giriş. _(2026-11-17: CLI 2.1.5 → 2.1.318'e güncellendi; kullanıcı yeniden giriş yaptı; `claude -p --model claude-haiku-5-5` cevap veriyor, API anahtarı kullanılmıyor, abonelik `max`)_
 - [x] `ANTHROPIC_API_KEY` tanımlı değil: PowerShell'de `echo $env:ANTHROPIC_API_KEY` boş dönüyor. _(2026-11-17: kullanıcı düzeyinde tanımlıydı, kullanıcı onayıyla kaldırıldı; User/Machine/Process üçü de boş)_
 - [x] En az 30 GB boş disk. _(2026-11-17: C: 103 GB boş)_
 - [ ] Uyku kapalı: Ayarlar → Sistem → Güç → prize takılıyken uyku "Hiçbir zaman". Bilgisayar prizde.
@@ -116,7 +116,7 @@ Sabah raporunu doldur.
 | 2026-11-17 | `ANTHROPIC_API_KEY` Windows kullanıcı ortam değişkeni olarak tanımlı (User scope). Yeni açılan her terminal ve Claude Code oturumu bunu devralır; `claude_code` backend'inde abonelik yerine API faturalanabilir. | **Çözüldü (2026-11-17):** kullanıcı onayıyla User scope'tan kaldırıldı. Açık terminaller/Claude uygulaması eski değeri hâlâ taşıyabilir; gece oturumundan önce yeniden başlatılmalı. Anahtar `anthropic_api` backend'i için gerekiyorsa yalnızca `.env`'de tutulmalı. |
 | 2026-11-17 | GPU yalnızca 4 GB VRAM (RTX 3050 Laptop). bge-m3 + bge-reranker-v2-m3 + Docling aynı anda belleğe sığmayabilir. | Engel değil, risk: modelleri fp16 ve küçük batch'le, sırayla yükle; Docling'i embedding'den ayrı çalıştır. |
 | 2026-11-17 | Docker Desktop'a ~7.6 GB RAM ayrılmış; Docker Desktop oturum açılışında otomatik başlamıyor olabilir (bugün kapalıydı). | Gece oturumundan önce Docker Desktop'ın açık olduğunu kontrol et. |
-| 2026-11-17 | `claude -p "merhaba"` başarısız: "OAuth session expired and could not be refreshed". CLI güncellendi (2.1.318), sorun sürüyor. `claude-agent-sdk` aynı girişi kullandığı için T1 ve tüm LLM adımları buna bağlı. | Kullanıcı bir terminalde `claude` açıp `/login` ile **aboneliğin bağlı olduğu hesapla** yeniden giriş yapmalı; ardından `claude -p "merhaba"`. |
+| 2026-11-17 | `claude -p "merhaba"` başarısız: "OAuth session expired and could not be refreshed". CLI güncellendi (2.1.318), sorun sürüyor. `claude-agent-sdk` aynı girişi kullandığı için T1 ve tüm LLM adımları buna bağlı. | **Çözüldü (2026-11-17):** kullanıcı yeniden giriş yaptı; Haiku ile `claude -p` doğrulandı. |
 | 2026-11-17 | Uyku ayarı kontrol edilmedi. | Kullanıcı kontrol etmeli. |
 
 ## Sabah raporu
