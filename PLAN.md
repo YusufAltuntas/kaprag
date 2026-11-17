@@ -141,6 +141,8 @@ Sabah raporunu doldur.
 | 2026-11-17 | T13 kuralları: API (`scripts/serve_api.py`) ve sohbet demosu (`scripts/chat_app.py`) ortak bir servis katmanını kullanır, varsayılan konfigürasyon `router`; rol yalnızca API parametresinden / arayüz seçicisinden gelir; ikisi de varsayılan olarak 127.0.0.1'e bağlanır, kimlik doğrulama yok; abonelik backend'i (`claude_code`) ile localhost dışına açılmayı API de demo da reddeder. `.streamlit/config.toml` repodaki bütün Streamlit uygulamalarını (review arayüzü dahil) localhost'a bağlar. İngilizce sorular ana gold dosyasına eklenmedi: `eval/gold/questions_en.jsonl` (15 soru, dev sorularının çevirisi, `verified: false`). | "Başkalarına açılan demo abonelikle değil API anahtarıyla çalışır" kararı; bu gecenin gold seti bayt bayt aynı kalsın. İngilizce deneme (`runs/2026-11-17-router-english-probe/`): cevap puanı 0,720, aynı soruların Türkçe asıllarında 0,653; page_recall@5 0,769'a karşı 0,846; n=15, fark gürültü. 15 İngilizce sorunun 6'sı Türkçe cevaplandı (prompt'lara dokunulmadı) |
 | 2026-11-17 | Oturum boyunca uykuyu engellemek için uygulamanın keep-awake'ine ek olarak arka planda bir PowerShell süreci çalıştırıldı (`SetThreadExecutionState`; hiçbir güç ayarı değişmedi; oturum sonunda durduruldu). Alt agent'ların commit'leri `Co-Authored-By: Claude Opus 5.5`, orkestratörün `docs:` commit'leri `Claude Fable 5.2` satırı taşıyor. | Uygulamanın keep-awake'i oturum ~5 dk boşta kalınca bırakıyor, veri işleri ise gözetimsiz saatlerce sürdü; commit satırı işi yapan modeli doğru göstersin |
 | 2026-11-18 | Final whole-branch review `fable` ile yapıldı; bulguları tek bir düzeltme dalgası ve tek bir kapsamlı re-review ile kapatıldı. Dev/test kaynak örtüşmesi (159 test sorusunun 61'i) düzeltilmedi, README'lere sınırlama olarak yazıldı; split'i yeniden yapmak kullanıcının kararı. Task review'ların ertelediği küçük bulgulardan yalnızca ölçümleri değiştirmeyenler düzeltildi. | Skill kuralı: tek düzeltme dalgası. Split'i değiştirmek bu gecenin bütün dev/test sayılarını geçersiz kılardı ve gold dosyası review'dan önce bayt bayt sabit kalmalı |
+| 2026-11-18 | **Kullanıcı kararı:** gold set şimdilik elle doğrulanmayacak; bağımsız LLM agent'ları denetledi, sonuç ayrı bir `audit` alanına (`passed` / `fixed` / `flagged`) yazıldı, `verified` insan review'una ayrılmış olarak kaldı. README'ler "LLM ile üretildi ve bağımsız bir LLM denetiminden geçti; insan denetimi yapılmadı" diyor; denetimin insan doğrulaması gibi gösterilmesi ya da gizlenmesi yapılmadı. `eval/README.md` §3 ve §6'ya alan ve "denetlenmiş alt küme" eklendi. | Kullanıcı 4–8 saatlik review'u yapmak istemedi; işverene yanlış bilgi vermemek için etiket dürüst tutuldu |
+| 2026-11-18 | Denetim kararlarının uygulanma kuralı (`runs/2026-11-18-gold-audit/decisions.json`): sorunsuz → `passed` (cevabı içermeyen ek kanıt sayfaları çıkarılır, ilk kanıt sayfası korunur); soru metni değişmeden düzeltilebilen → denetçinin önerdiği alanlar uygulanır, `fixed`; soru metninin yeniden yazılması gereken → dokunulmaz, `flagged`; tekrar ya da çelişkili → `rejected.jsonl`. Koşular yeniden çalıştırılmaz, kayıtlı çıktılar yeniden puanlanır. | Kayıtlı sistem cevapları eski soru metnine ait olduğu için soru metni değiştirilemez; test split'i bir kez koşulur ve indeks (roller yazıldıktan sonra) değişti |
 
 ## Engeller
 
@@ -158,6 +160,39 @@ Sabah raporunu doldur.
 ## Sabah raporu
 
 _Gece oturumu 2026-11-17 15:50'de başladı, 2026-11-18 00:20'de bitti. Hiçbir şey push edilmedi; gold set'te `verified: true` yok._
+
+### Güncelleme — 2026-11-18, agent denetimi (kullanıcı kararıyla)
+
+Kullanıcı gold set'i şimdilik elle doğrulamamaya karar verdi. Bunun yerine bağımsız LLM agent'ları 243 taslağın hepsini render edilmiş PDF sayfa görüntülerine karşı denetledi (`runs/2026-11-18-gold-audit/`). Sonuç `verified` alanına değil ayrı bir `audit` alanına yazıldı; **hiçbir soru insan tarafından doğrulanmadı**.
+
+- **Denetim sonucu (243 taslak):** 224 sorunsuz; 13 düzeltildi (11'inde yalnızca kanıt sayfaları, 3'ünde beklenen cevap metni, birer tanesinde değer ve tolerans); 3'ü insan kararı gerektiriyor ve olduğu gibi bırakıldı (q080, q090, q239 — soru metni belirsiz; denetlenmiş alt kümede değiller); 3'ü reddedildi ve `eval/gold/rejected.jsonl`'a taşındı (q063 ve q078 tekrar, q068'de rapor iki farklı çalışan sayısı veriyor). Ayrıca cevabı içermeyen 25 ek kanıt sayfası çıkarıldı, türetilmiş 9 sorunun kanıtı kaynaklarından yeniden hesaplandı.
+- **Denetimin bulgusu:** kontrol edilen finansal rakamlarda değer, ölçek, esas ya da yıl sütunu hatası çıkmadı; asıl kusur otomatik eklenen ve cevabı içermeyen kanıt sayfalarıydı (en ağırı q091: gösterilen beş sayfanın hiçbirinde rakam yoktu).
+- **Gold set şimdi:** 240 soru (dev 84, test 156); denetlenmiş alt küme 237 soru (dev 83, test 154).
+- **Koşular yeniden çalıştırılmadı.** Kayıtlı sistem çıktıları denetlenmiş gold set'e karşı yeniden puanlandı (`scripts/rescore_run.py`, klasörler `runs/<özgün>-rescored/`; toplam 3 yeni judge çağrısı). Test split'i hâlâ bir kez koşulmuş durumda.
+
+**Denetlenmiş alt küme — test (154 soru):**
+
+| Konfigürasyon | Cevap doğruluğu | Sayısal doğruluk | page_recall@5 | page_recall@10 | Yanlış reddetme | Maliyet/soru | p50 / p95 gecikme | Run |
+|---|---|---|---|---|---|---|---|---|
+| baseline | 0,487 | 0,389 | 0,605 | 0,698 | 0,445 | $0,0014 | 6,3 s / 12,3 s | `runs/2026-11-17-baseline-test-rescored/` |
+| router (en iyi) | 0,681 | 0,537 | 0,829 | 0,899 | 0,134 | $0,0048 | 12,0 s / 25,8 s | `runs/2026-11-17-router-test-rescored/` |
+
+**Denetlenmiş alt küme — dev (83 soru):**
+
+| Konfigürasyon | Cevap doğruluğu | page_recall@5 | page_recall@10 | Kaynak doğruluğu (precision) | Yanlış reddetme | Run |
+|---|---|---|---|---|---|---|
+| baseline | 0,460 | 0,575 | 0,753 | 0,35 | 0,500 | `runs/2026-11-17-baseline-dev-rescored/` |
+| + hybrid | 0,505 | 0,671 | 0,781 | 0,47 | 0,455 | `runs/2026-11-17-hybrid-dev-rescored/` |
+| + rerank | 0,599 | 0,822 | 0,918 | 0,45 | 0,364 | `runs/2026-11-17-rerank-dev-rescored/` |
+| + structure | 0,574 | 0,726 | 0,767 | 0,70 | 0,333 | `runs/2026-11-17-structure-dev-rescored/` |
+| + metadata_filter | 0,582 | 0,767 | 0,822 | 0,63 | 0,333 | `runs/2026-11-17-metadata-filter-dev-rescored/` |
+| router | 0,659 | 0,918 | 0,945 | 0,43 | 0,197 | `runs/2026-11-17-router-dev-rescored/` |
+
+Denetim cevap doğruluğunu konfigürasyon başına en fazla 0,01–0,02 oynattı; sıralama ve yorumlar değişmedi. Router test koşusundaki judge hatası (q127) yeniden puanlamada giderildi. Dev/test örtüşmesi denetlenmiş sette: 156 test sorusunun 61'i, 26 test `karsilastirma` sorusunun 24'ü; router örtüşenlerde 0,59, diğerlerinde 0,73 (`runs/2026-11-17-split-overlap/overlap-after-audit.txt`).
+
+Aşağıdaki gece raporu tabloları denetimden **önceki** taslak set (243 soru) üzerindedir; tarihçe olarak duruyor.
+
+Hâlâ senin kararını bekleyenler: işaretli üç sorunun yeniden yazılması (q080, q090, q239); istersen 40–50 soruluk bir insan denetimi (README'deki ifade "N soruluk insan denetiminde uyum %X" olarak güçlenir); split kararı; judge kalibrasyonu; push.
 
 **Biten görevler:** planın 15 görevinin hepsi (T0–T14). Her görevin kabul ölçütlerini orkestratör kendisi çalıştırdı; her görev ayrı bir task review'dan, bütün dal en sonda bir whole-branch review'dan geçti. Whole-branch review kritik bulgu çıkarmadı; dört önemli bulgu ve birkaç küçük düzeltme tek bir düzeltme dalgasıyla giderildi (aşağıda "Final review").
 
