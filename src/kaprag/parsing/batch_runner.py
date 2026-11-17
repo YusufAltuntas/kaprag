@@ -138,7 +138,15 @@ def run_jobs(
                 if on_failure is not None:
                     on_failure()
                 continue
-            write_jsonl_atomic(part_path(out_dir, job.doc_id, first, last), rows)
+            try:
+                write_jsonl_atomic(part_path(out_dir, job.doc_id, first, last), rows)
+            except OSError as e:
+                doc_failed = True
+                failed_pages += last - first + 1
+                error = f"writing part failed: {type(e).__name__}: {e}"
+                summary.failures.append(Failure(job.doc_id, first, last, error))
+                log.error("%s pages %d-%d FAILED: %s", job.doc_id, first, last, error)
+                continue
             seconds = clock() - start
             pages = last - first + 1
             summary.pages_converted += pages
@@ -162,7 +170,13 @@ def run_jobs(
             )
         if doc_failed:
             continue
-        rows = _assemble(out_dir, job, ranges)
+        try:
+            rows = _assemble(out_dir, job, ranges)
+        except Exception as e:  # isolate the failure to this document
+            error = f"assembly failed: {type(e).__name__}: {e}"
+            summary.failures.append(Failure(job.doc_id, None, None, error))
+            log.error("%s FAILED: %s", job.doc_id, error)
+            continue
         summary.completed.append(job.doc_id)
         log.info("%s: complete, %d rows -> %s", job.doc_id, rows, final_path(out_dir, job.doc_id))
     return summary
@@ -179,5 +193,10 @@ def _assemble(out_dir: Path, job: Job, ranges: list[tuple[int, int]]) -> int:
     tmp = marker_path(out_dir, job.doc_id).with_suffix(".tmp")
     tmp.write_text(json.dumps(marker) + "\n", encoding="utf-8")
     tmp.replace(marker_path(out_dir, job.doc_id))
-    shutil.rmtree(out_dir / f"{job.doc_id}.parts")
+    # The marker is written, so the parts are no longer needed; a leftover is harmless.
+    parts_dir = out_dir / f"{job.doc_id}.parts"
+    try:
+        shutil.rmtree(parts_dir)
+    except OSError as e:
+        log.warning("%s: could not remove %s: %s", job.doc_id, parts_dir, e)
     return count

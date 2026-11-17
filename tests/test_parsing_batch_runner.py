@@ -49,6 +49,7 @@ def _row(page, type_, text, level=None):
         "level": level,
         "text": text,
         "caption": None,
+        "in_picture": False,
     }
 
 
@@ -146,3 +147,49 @@ def test_missing_pdf_is_a_document_failure(tmp_dir):
     summary = run_jobs([job], tmp_dir / "out", converter, pages_per_batch=2)
     assert converter.calls == []
     assert [(f.doc_id, f.first) for f in summary.failures] == [("akbank-2024", None)]
+
+
+def test_a_failing_part_write_or_assembly_does_not_stop_other_documents(tmp_dir, monkeypatch):
+    import kaprag.parsing.batch_runner as runner
+
+    real_write = runner.write_jsonl_atomic
+
+    def flaky_write(path, rows):
+        if path.name == "0001-0002.jsonl" and path.parent.name == "akbank-2024.parts":
+            raise PermissionError("part locked")
+        if path.name == "garanti-2024.jsonl":
+            raise PermissionError("final locked")
+        return real_write(path, rows)
+
+    monkeypatch.setattr(runner, "write_jsonl_atomic", flaky_write)
+    out = tmp_dir / "out"
+    jobs = [
+        make_job(tmp_dir, "akbank-2024", 1, 2),
+        make_job(tmp_dir, "garanti-2024", 1, 2),
+        make_job(tmp_dir, "isbank-2024", 1, 2),
+    ]
+    summary = run_jobs(jobs, out, FakeConverter(), pages_per_batch=2)
+    assert [(f.doc_id, f.first) for f in summary.failures] == [
+        ("akbank-2024", 1),
+        ("garanti-2024", None),
+    ]
+    assert "part locked" in summary.failures[0].error
+    assert "assembly failed" in summary.failures[1].error
+    assert summary.completed == ["isbank-2024"]
+    assert not is_complete(out, jobs[0]) and not is_complete(out, jobs[1])
+
+
+def test_parts_dir_removal_failure_still_completes(tmp_dir, monkeypatch, caplog):
+    import kaprag.parsing.batch_runner as runner
+
+    def locked_rmtree(path):
+        raise PermissionError("held by indexer")
+
+    monkeypatch.setattr(runner.shutil, "rmtree", locked_rmtree)
+    out = tmp_dir / "out"
+    job = make_job(tmp_dir, last=2)
+    with caplog.at_level(logging.WARNING, logger="kaprag.parsing.batch_runner"):
+        summary = run_jobs([job], out, FakeConverter(), pages_per_batch=2)
+    assert summary.completed == ["akbank-2024"] and summary.failures == []
+    assert is_complete(out, job)
+    assert "could not remove" in caplog.text
