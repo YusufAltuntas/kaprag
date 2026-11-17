@@ -120,6 +120,9 @@ Sabah raporunu doldur.
 | 2026-11-17 | Garanti korpusta yalnızca entegre faaliyet raporlarıyla kalır; ayrı BDDK finansal raporları eklenmez. Garanti `tablo` soruları raporda geçen rakamlarla sınırlıdır. | Garanti'nin entegre raporlarında tam bilanço/gelir tablosu yok; plan "bağımsız denetim raporları kapsam dışı" diyor. Yanlışsa bedeli: daha az Garanti tablo sorusu |
 | 2026-11-17 | 12 raporun 12'si bankaların kendi yatırımcı ilişkileri sitelerinden indirildi (KAP gerekmedi); dört banka da 2023–2025 için yalnızca "Entegre Faaliyet Raporu" yayımlıyor. Toplam 3.187 PDF sayfası (`data/manifest.csv`). | T2; inmeyen doküman yok |
 | 2026-11-17 | PyMuPDF çekirdek bağımlılıkta klasik sürüm hattına sabitlendi (`pymupdf>=1.26,<2`). | 2.x sürümü `onnxruntime`, `numpy` ve layout paketlerini çekirdeğe sürüklüyordu; T3 sayfa metni ve T7 sayfa görüntüsü için klasik sürüm yeterli, CI hafif kalıyor |
+| 2026-11-17 | Docling çıktısında `level` ve `section_path` yaklaşıktır (başlık seviyeleri 20 sayfalık partiler içinde yazı stilinden çıkarılıyor); güvenilir olan en yakın başlıktır. T4'ün `structure` chunker'ı önek olarak en yakın başlığı kullanır. Grafik/infografik içindeki metin `in_picture` bayrağıyla korunur. | İlk Docling çıktısı grafik bölgelerindeki metni atıyordu: garanti-2023'te PyMuPDF'teki sayıların %90,5'i kalıyordu, düzeltmeden sonra %99,7 (ölçüm: `data/parsed/` üzerinde orkestratör kontrolü). Seviyeleri yeniden hesaplamak spekülatif olurdu |
+| 2026-11-17 | Eval harness (T5) kuralları: test split'i `--confirm-test` olmadan çalışmaz; `error` olan soru doğruluk metriklerinde yanlış sayılır ve ayrıca raporlanır; `answer_with_assumption` kontrolü deterministiktir (reddetmeden, gold esasla eşleşen dolu `basis`); gecikme yüzdeliklerinden cache isabetli sorular çıkarılır, maliyet cache isabetinde de ilk çağrının maliyetidir; judge maliyeti pipeline maliyetinden ayrı raporlanır. Şemada `expected.unit` ∈ {TL, %, adet}, `verified` ile `verified_at` birlikte dolar. | `eval/README.md` bu ayrıntıları açık bırakıyor; sayıların tekrar koşularda aynı çıkması ve test split'inin korunması için |
+| 2026-11-17 | 30 pilot sorusu yalnızca dev split'inden seçilir. | Pilot sonucuna göre taslaklar ayarlanacağı için (eval §7 adım 9) pilot, test split'ine dokunmamalı; §2 yalnızca "tabakalı" diyor |
 
 ## Engeller
 
@@ -185,7 +188,7 @@ _(Gece oturumu doldurur: biten görevler, kalanlar, taslak ablation tablosu, kul
 - **Commit:** `feat: add chunkers and pgvector index with Turkish full-text search`
 
 ### Task T5 — Eval harness (P0)
-- [ ] Tamamlandı
+- [x] Tamamlandı
 - `eval/README.md`'deki şema (pydantic), metrikler ve cevap formatı.
 - Sayısal puanlayıcı: Türkçe sayı formatı ve bin/milyon/milyar TL normalizasyonu.
 - Runner: `uv run python scripts/run_eval.py --config <ad> --split dev|test|pilot` → `runs/YYYY-MM-DD-<konu>/` (`README.md` tek satır, `config.yaml`, `results.jsonl`, `summary.json`, `traces.jsonl`). Metrikler hem tüm sette hem doğrulanmış alt kümede.
