@@ -139,6 +139,8 @@ Sabah raporunu doldur.
 | 2026-11-17 | T11'de roller gerçek indeks tablolarına hemen yazılmadı; uygulayıcı kopya şemada doğruladı, gerçek tablolara atama test koşularından sonra yapılır. Görev sırası: T11, T10'dan önce; T14 (P2), T12'den önce başlatıldı. | `access_roles` güncellemesi ~15 bin satırın yeni sürümünü ve yeni HNSW girdilerini üretir; yaklaşık aramanın sonuçları ölçüm serisinin ortasında değişebilirdi. Sıra değişiklikleri boşta kalan uygulayıcı süresini kullanmak için |
 | 2026-11-17 | T11 erişim modeli (simüle): chunk'ın `access_roles` alanı onu görebilen rolleri listeler — "Risk Yönetimi" başlığı altı → `{risk}`; yasal finansal raporun beşinci bölümü (dipnotlar) → `{analyst, risk}`; diğerleri → `{public}`. İsteğin rolü yalnızca çağırandan/konfigürasyondan gelir, soru metninden asla; etkin rol kümesi her zaman `public`'i içerir. Sabit chunk'larda roller sayfa düzeyinde ve kapsanan sayfaların en kısıtlısıdır. Mevcut eval konfigürasyonları erişim filtresiz çalışır. | Plan T11. "Dipnot" başlık kuralı bazı bankalarda finansal tabloların tamamını ve denetçi raporunu da yakaladığı için dipnot tanımı beşinci bölümle sınırlandı. Kısıtlı pay büyük (Garanti hariç raporların yaklaşık %40–55'i): `public` rolüyle demo sık sık reddeder. Hatalar yalnızca aşırı kısıtlama yönünde |
 | 2026-11-17 | T13 kuralları: API (`scripts/serve_api.py`) ve sohbet demosu (`scripts/chat_app.py`) ortak bir servis katmanını kullanır, varsayılan konfigürasyon `router`; rol yalnızca API parametresinden / arayüz seçicisinden gelir; ikisi de varsayılan olarak 127.0.0.1'e bağlanır, kimlik doğrulama yok; abonelik backend'i (`claude_code`) ile localhost dışına açılmayı API de demo da reddeder. `.streamlit/config.toml` repodaki bütün Streamlit uygulamalarını (review arayüzü dahil) localhost'a bağlar. İngilizce sorular ana gold dosyasına eklenmedi: `eval/gold/questions_en.jsonl` (15 soru, dev sorularının çevirisi, `verified: false`). | "Başkalarına açılan demo abonelikle değil API anahtarıyla çalışır" kararı; bu gecenin gold seti bayt bayt aynı kalsın. İngilizce deneme (`runs/2026-11-17-router-english-probe/`): cevap puanı 0,720, aynı soruların Türkçe asıllarında 0,653; page_recall@5 0,769'a karşı 0,846; n=15, fark gürültü. 15 İngilizce sorunun 6'sı Türkçe cevaplandı (prompt'lara dokunulmadı) |
+| 2026-11-17 | Oturum boyunca uykuyu engellemek için uygulamanın keep-awake'ine ek olarak arka planda bir PowerShell süreci çalıştırıldı (`SetThreadExecutionState`; hiçbir güç ayarı değişmedi; oturum sonunda durduruldu). Alt agent'ların commit'leri `Co-Authored-By: Claude Opus 5.5`, orkestratörün `docs:` commit'leri `Claude Fable 5.2` satırı taşıyor. | Uygulamanın keep-awake'i oturum ~5 dk boşta kalınca bırakıyor, veri işleri ise gözetimsiz saatlerce sürdü; commit satırı işi yapan modeli doğru göstersin |
+| 2026-11-18 | Final whole-branch review `fable` ile yapıldı; bulguları tek bir düzeltme dalgası ve tek bir kapsamlı re-review ile kapatıldı. Dev/test kaynak örtüşmesi (159 test sorusunun 61'i) düzeltilmedi, README'lere sınırlama olarak yazıldı; split'i yeniden yapmak kullanıcının kararı. Task review'ların ertelediği küçük bulgulardan yalnızca ölçümleri değiştirmeyenler düzeltildi. | Skill kuralı: tek düzeltme dalgası. Split'i değiştirmek bu gecenin bütün dev/test sayılarını geçersiz kılardı ve gold dosyası review'dan önce bayt bayt sabit kalmalı |
 
 ## Engeller
 
@@ -155,15 +157,17 @@ Sabah raporunu doldur.
 
 ## Sabah raporu
 
-_Ara durum — son güncelleme 2026-11-17 ~23:15. Oturum sürüyor; iş bitince bu bölüm kesinleştirilecek._
+_Gece oturumu 2026-11-17 15:50'de başladı, 2026-11-18 00:20'de bitti. Hiçbir şey push edilmedi; gold set'te `verified: true` yok._
 
-**Biten görevler (kabul ölçütleri orkestratör tarafından çalıştırıldı):** T0–T8 (P0'ın tamamı).
+**Biten görevler:** planın 15 görevinin hepsi (T0–T14). Her görevin kabul ölçütlerini orkestratör kendisi çalıştırdı; her görev ayrı bir task review'dan, bütün dal en sonda bir whole-branch review'dan geçti. Whole-branch review kritik bulgu çıkarmadı; dört önemli bulgu ve birkaç küçük düzeltme tek bir düzeltme dalgasıyla giderildi (aşağıda "Final review").
 
-T9–T14 de bitti: planın 15 görevinin hepsi (T0–T14) işaretli. Test split'i baseline ve router ile bir kez çalıştırıldı.
+**Yapılmayanlar (bilerek):**
+- T9e (opsiyonel embedding değişimi) çalıştırılmadı.
+- T14'ün opsiyonel adımı: Langfuse yığını ayağa kaldırılmadı, exporter gerçek bir sunucuya karşı denenmedi (Engeller'e bakınız).
+- Judge kalibrasyonu (`eval/README.md` §6): 50 elle etiketli cevap gerektiriyor.
+- CI GitHub'da koşmadı (push yok); macOS'ta hiçbir şey denenmedi.
 
-**Süren / kalan:** final whole-branch review.
-
-**Taslak sonuçlar — doğrulanmamış gold set (hiçbir soru `verified` değil; README/CV'ye girmez):**
+**Taslak sonuçlar — doğrulanmamış gold set.** Hiçbir soru `verified` değil. `eval/README.md` §6'ya göre README/CV'ye yalnızca doğrulanmış alt kümenin sayıları girer; README'lerdeki tablolar T12'nin istediği gibi "Taslak — doğrulanmamış gold set" etiketiyle duruyor ve doğrulamadan sonra değiştirilmeli.
 
 | Konfigürasyon | Split | Soru | Cevap doğruluğu | page_recall@5 | page_recall@10 | Yanlış reddetme | Maliyet/soru (API-eşdeğeri) | p50 gecikme | Run |
 |---|---|---|---|---|---|---|---|---|---|
@@ -209,12 +213,32 @@ Okuma notları:
 - T9e (embedding'i `multilingual-e5-large` ile değiştirmek, opsiyonel) yapılmadı.
 - Router (T10): dev'de 9 hesaplama ve 13 karşılaştırma sorusunun hepsini agent yoluna, diğer 62 soruyu basit yola (`rerank` ile birebir aynı cevaplar) yolladı. Maliyet soru başına yaklaşık 3 kat (agent yolunda bir Sonnet çağrısı + alt soru başına Haiku). Router'ın dev gecikmesi diğer satırlarla karşılaştırılamaz: basit yoldaki cevaplar cache'ten geldiği için gecikme yalnızca 9 soruda ölçüldü (p50 25,0 s, ağırlıkla agent yolu). Agent yolundaki hataların kaynağı tek rakam çıkarma/normalizasyon adımı (ör. "3 trilyon 2 milyar" yazımı normalize edilemiyor, yanlış tanımlı oran seçiliyor).
 
-**Kullanıcının yapması gerekenler (şimdiye kadar birikenler):**
-- Gold set'i review arayüzünden doğrula: `uv sync --group ml --group app` sonra `uv run streamlit run scripts/review_app.py`. 243 taslak var; hedef 180 soru ve en az %35'i insan yazımı.
-- Review'da özellikle bakılacak taslaklar: q015 ve q063 aynı şube sayısı sorusuna 804 ve 805 diyor; q078 ve q079 aynı soru; q092 yuvarlak "2,6 trilyon" kullanıyor (kesin rakam s.204'te); q031'de `basis` İş Bankası'na değil TSKB'ye ait; q167 ve q174'ün kanıt sayfalarından biri konu dışı. Sayfadan üretilen bazı `tablo` soruları fazla ayrıntılı dipnot kalemleri soruyor.
-- Judge kalibrasyonu için 50 cevabı elle etiketle (`eval/README.md` §6); bu gece yapılamadı.
-- İlk `git push`'ta GitHub Actions'ın Windows ve macOS'ta yeşil olduğunu kontrol et (yerelde yalnızca Windows'ta denendi).
-- Repo yolundaki `ş` için karar ver (Engeller'e bakınız): repoyu ASCII bir yola taşımak iki geçici çözümü gereksiz kılar.
+**Dev ve test bağımsız değil (final review bulgusu):** ayrım (tip, banka) tabakalı ve `derived_from`'u hesaba katmıyor. 159 test sorusunun 61'i bir dev sorusuyla aynı kaynak rakamı paylaşıyor; 26 test `karsilastirma` sorusunun 24'ü böyle (`runs/2026-11-17-split-overlap/overlap.txt`). Router dev'de seçildi ve hedefi tam bu tipler. Zarar kanıtı yok: gold içeriği hiçbir prompt'ta ya da pipeline kodunda geçmiyor, router test'te örtüşen sorularda 0,59, diğerlerinde 0,71 alıyor. Yine de test seti bu tipler için tam "görülmemiş" sayılamaz; README'lere sınırlama olarak yazıldı.
+
+**Final review (whole-branch, Fable):** doğruladıkları — erişim rolü router'ın alt aramaları ve geri düşüş yolları dahil her aramaya uygulanıyor ve hiçbir yerde soru metninden gelmiyor; bütün SQL parametreli; `verified` yalnızca review arayüzünün üç açık eyleminde yazılıyor; kontrol ettiği bütün sayılar koşu dosyalarıyla eşleşiyor; test split'i konfigürasyon başına bir kez koşulmuş; `3de913f`'ten sonra pipeline, konfigürasyon ve gold dosyalarında değişiklik yok. Düzeltme dalgasında giderilenler: `draft_gold.py` artık var olan gold dosyasının üzerine yazmayı reddediyor (doğrulanmış ya da insan yazımı soru varsa `--overwrite` ile bile); veritabanı portu compose dosyasında 127.0.0.1'e bağlandı; router yolunda çağıranın rolünü sabitleyen testler eklendi; erişim kuralındaki "bölümde/bölümün" kenar durumu kapatıldı (atanmış rollerde değişen satır yok); sızıntı testi boş sonuç listesinde artık başarısız oluyor; `--split pilot` test sorusu içeriyorsa `--confirm-test` istiyor; cache'teki bozuk bir cevap artık cache ıskası sayılıyor; README'lere dev/test örtüşmesi ve iki ölçüm notu eklendi. Hiçbiri ölçülmüş sonuçları değiştirmiyor; dalga ayrı bir re-review'dan geçti (dokuz maddenin dokuzu giderildi, yeni önemli bulgu yok) ve sonrasında 956 test yeşil. Kalan küçük not: gold üzerine yazma koruması yalnızca `scripts/draft_gold.py`'de, pipeline doğrudan Python'dan çağrılırsa korumuyor.
+
+**Bilinen sorunlar (düzeltilmedi; ölçümleri ya da gold dosyasını değiştirirdi ya da küçük):**
+- Gold taslağında: q015 ve q063 aynı şube sayısı sorusuna 804 ve 805 diyor; q078 ve q079 aynı soru; q092 yuvarlak "2,6 trilyon" kullanıyor (kesin rakam s.204'te, kanıtta yok); q031'de `basis` İş Bankası'na değil TSKB'ye ait; q167 ve q174'ün kanıt sayfalarından biri konu dışı; sayfadan üretilen bazı `tablo` soruları fazla ayrıntılı dipnot kalemleri soruyor; `cevapsiz` ve metrik soruları birkaç kalıbı tekrarlıyor.
+- Router'ın agent yolundaki hataların kaynağı tek rakam çıkarma/normalizasyon: "3 trilyon 2 milyar" gibi yazımlar normalize edilemiyor, aynı metriğin farklı tanımlı değeri seçilebiliyor. Router'ın reddetme ve şablon cevapları İngilizce soruda da Türkçe.
+- 15 İngilizce sorunun 6'sı Türkçe cevaplandı (prompt kuralına rağmen).
+- Erişim kuralı sayfa düzeyinde ve yalnızca aşırı kısıtlama yönünde hatalı (ör. yapikredi-2024 yaklaşık s.208–217); Docling satırı olmayan sayfalar `public` sayılıyor (korpusta böyle metinli sayfa yok).
+- `scripts/serve_api.py` açılma korumasını `kaprag.serve.exposure` yerine kendi içinde tekrar ediyor (ikisi küçük ayrıntılarda farklı); `scripts/chat_app.py`'de `$KAPRAG_SERVE_FACTORY` ile keyfi modül yükleyen bir test kancası var.
+- Test koşularının köken dosyasında (`runs/logs/2026-11-17-test-runs.provenance.txt`) "başlatma anındaki git status" bölümü boş; `-dirty` açıklaması sonradan yazılan nota ve git geçmişine dayanıyor.
+- Elle yeniden adlandırılan deneme koşu klasörleri (`*-smoke*`, `*-cachecheck*`, `router-english-probe`) içlerinde eski `run_id`'yi taşıyor.
+- Task review'ların ertelediği küçük bulguların tam listesi ve triyajı: `.superpowers/sdd/PLAN/final-review-deferred-minors.md` (git dışı çalışma klasörü; bu oturumun defteri `progress.md` de orada).
+
+**Kullanıcının yapması gerekenler (öncelik sırasıyla):**
+1. Gold set'i review arayüzünden doğrula: `uv sync --group ml --group app --group observability`, sonra repo kökünden `uv run streamlit run scripts/review_app.py`. 243 taslak var; hedef 180 soru ve en az %35'i insan yazımı. Her review oturumundan sonra `eval/gold/questions.jsonl`'ı commit'le.
+2. Doğrulanmış sayıları yayımlamadan önce split kararını ver: `derived_from` gruplarına göre yeniden ayırmak test'i gerçekten görülmemiş yapar ama bu gecenin dev ve test sayılarını geçersiz kılar; olduğu gibi bırakmak README'deki sınırlamayı taşımak demek.
+3. `docker compose up -d` çalıştır: veritabanı container'ı yeniden oluşup 127.0.0.1'e bağlanır (şu an hâlâ 0.0.0.0:5432'de dinliyor; volume indeksi korur).
+4. Judge kalibrasyonu için 50 cevabı elle etiketle (`eval/README.md` §6).
+5. İlk `git push`'ta GitHub Actions'ın Windows ve macOS'ta yeşil olduğunu kontrol et (hafif kurulum yerelde yalnızca Windows'ta denendi). `main`, `origin/main`'in önünde; push senin kararın.
+6. Langfuse'u denemek istersen Engeller'deki adımları izle.
+7. Repo yolundaki `ş` için karar ver (Engeller): repoyu ASCII bir yola taşımak iki geçici çözümü gereksiz kılar.
+8. `eval/README.md` §6'ya başlık metriğinin tanımını eklemeyi düşün: "cevap doğruluğu" bileşik bir puan (tanımı şu an yalnızca `src/kaprag/eval/metrics.py` docstring'inde ve README'lerde).
+9. q127'nin judge hatası router test sonucunu n=158'de bırakıyor; bunu düzeltmek için test split'ini yeniden koşma.
+
+Uygulamaları başlatma: review arayüzü `uv run streamlit run scripts/review_app.py`; sohbet demosu `uv run streamlit run scripts/chat_app.py`; API `uv run python scripts/serve_api.py` (üçü de repo kökünden, 127.0.0.1'de). Ayrıntılar `README.md`'de.
 
 ## Görevler
 
