@@ -13,8 +13,9 @@ query); `kaprag.rag.pipeline` runs it in a worker thread.
   `candidates_per_arm` of each fused by reciprocal rank fusion (`rrf_k`). A chunk found
   by one arm only is kept; the item's score is the fused score.
 
-A reranker or a SQL filter wraps or parameterises a retriever here. Generation never
-changes for them.
+`open_retriever` wraps any mode in the cross-encoder reranking stage
+(`kaprag.rag.rerank`) when the config has a `rerank` block; a SQL filter would
+parameterise a retriever here the same way. Generation never changes for them.
 
 Concurrency: a retriever owns one embedder and one autocommit connection, neither
 safe for concurrent use, so `retrieve` holds a lock: retrievals are serialised (each
@@ -146,4 +147,21 @@ RETRIEVAL_MODES: dict[str, Callable[[RagConfig], Retriever]] = {
 
 
 def open_retriever(config: RagConfig) -> Retriever:
-    return RETRIEVAL_MODES[config.retrieval.mode](config)
+    """The configured first-stage mode, wrapped in the reranking stage when the config
+    has a `rerank` block. Models load here, once per run."""
+    retriever = RETRIEVAL_MODES[config.retrieval.mode](config)
+    if config.rerank is None:
+        return retriever
+    from kaprag.rag import rerank
+
+    try:
+        scorer = rerank.CrossEncoderScorer(
+            config.rerank.model,
+            device=config.rerank.device,
+            batch_size=config.rerank.batch_size,
+            max_length=config.rerank.max_length,
+        )
+    except BaseException:
+        retriever.close()
+        raise
+    return rerank.RerankingRetriever(retriever, scorer, config.rerank.candidates)

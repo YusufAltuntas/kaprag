@@ -20,6 +20,7 @@ def test_baseline_config_values():
     assert rag.generation.model == "claude-haiku-5-5"
     assert (rag.embedding.model, rag.embedding.device) == ("BAAI/bge-m3", "cuda")
     assert cfg.pipeline.params["retrieval"] == {"mode": "dense"}  # nothing new in the baseline
+    assert "rerank" not in cfg.pipeline.params and rag.rerank is None
 
 
 def test_hybrid_config_is_the_baseline_with_only_the_retrieval_block_changed():
@@ -79,3 +80,23 @@ def test_defaults_need_only_the_index():
 def test_invalid_params_fail_loudly(params, message):
     with pytest.raises(RagConfigError, match=message):
         parse_rag_config(params)
+
+
+def test_rerank_config_is_hybrid_plus_the_rerank_block():
+    hybrid, rerank = load_config("hybrid"), load_config("rerank")
+    assert rerank.topic == "rerank"
+    assert rerank.pipeline.params["rerank"] == {
+        "model": "BAAI/bge-reranker-v2-m3",
+        "device": "cuda",
+        "candidates": 40,
+        "batch_size": 8,
+        "max_length": 1024,
+    }
+    assert {k: v for k, v in rerank.pipeline.params.items() if k != "rerank"} == (
+        hybrid.pipeline.params
+    )
+    assert rerank.model_dump(exclude={"pipeline", "description", "topic"}) == hybrid.model_dump(
+        exclude={"pipeline", "description", "topic"}
+    )
+    assert parse_rag_config(rerank.pipeline.params).rerank.candidates == 40
+    assert parse_rag_config(hybrid.pipeline.params).rerank is None

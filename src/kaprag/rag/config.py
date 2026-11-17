@@ -6,6 +6,12 @@
       # hybrid only:
       candidates_per_arm: 40  # top-n of each arm (dense, FTS) fed to the fusion
       rrf_k: 60               # reciprocal rank fusion constant (not tuned)
+    rerank:                   # optional stage after retrieval; absent = no reranking
+      model: BAAI/bge-reranker-v2-m3
+      device: cuda
+      candidates: 40          # top-n of the first stage scored by the cross-encoder
+      batch_size: 8
+      max_length: 1024        # tokens per (question, chunk) pair
     retrieve_k: 10            # ranked items returned to the harness (recall@10, mrr@10)
     context_k: 5              # top items put into the prompt (<= retrieve_k)
     generation:
@@ -50,6 +56,14 @@ class RetrievalConfig(_Strict):
         return self
 
 
+class RerankConfig(_Strict):
+    model: str = "BAAI/bge-reranker-v2-m3"
+    device: str = "cuda"
+    candidates: int = Field(default=40, ge=1)
+    batch_size: int = Field(default=8, ge=1)
+    max_length: int = Field(default=1024, ge=1)
+
+
 class GenerationConfig(_Strict):
     model: str = "claude-haiku-5-5"
 
@@ -62,6 +76,7 @@ class EmbeddingConfig(_Strict):
 class RagConfig(_Strict):
     index: Literal["fixed", "structure"]
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
+    rerank: RerankConfig | None = None
     retrieve_k: int = Field(default=10, ge=1)
     context_k: int = Field(default=5, ge=1)
     generation: GenerationConfig = Field(default_factory=GenerationConfig)
@@ -73,6 +88,10 @@ class RagConfig(_Strict):
             raise ValueError(
                 f"unknown retrieval mode {self.retrieval.mode!r}; "
                 f"expected one of {sorted(RETRIEVAL_MODES)}"
+            )
+        if self.rerank is not None and self.rerank.candidates < self.retrieve_k:
+            raise ValueError(
+                f"rerank.candidates ({self.rerank.candidates}) < retrieve_k ({self.retrieve_k})"
             )
         if self.context_k > self.retrieve_k:
             raise ValueError(f"context_k ({self.context_k}) > retrieve_k ({self.retrieve_k})")
