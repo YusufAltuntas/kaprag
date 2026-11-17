@@ -148,11 +148,11 @@ Sabah raporunu doldur.
 
 ## Sabah raporu
 
-_Ara durum — son güncelleme 2026-11-17 ~21:05. Oturum sürüyor; iş bitince bu bölüm kesinleştirilecek._
+_Ara durum — son güncelleme 2026-11-17 ~21:35. Oturum sürüyor; iş bitince bu bölüm kesinleştirilecek._
 
 **Biten görevler (kabul ölçütleri orkestratör tarafından çalıştırıldı):** T0–T8 (P0'ın tamamı).
 
-**Kalanlar:** T9–T12 (P1), T13–T14 (P2), final whole-branch review.
+**Süren / kalan:** T9'un a ve b adımları (hybrid, rerank) bitti ve dev'de ölçüldü; c ve d adımları sürüyor. Kalanlar: T10–T12 (P1), T13–T14 (P2), final whole-branch review.
 
 **Taslak sonuçlar — doğrulanmamış gold set (hiçbir soru `verified` değil; README/CV'ye girmez):**
 
@@ -160,8 +160,18 @@ _Ara durum — son güncelleme 2026-11-17 ~21:05. Oturum sürüyor; iş bitince 
 |---|---|---|---|---|---|---|---|---|---|
 | baseline (fixed, dense, top-5, Haiku) | pilot | 30 | 0,513 | 0,679 | 0,857 | 0,458 | $0,0013 | 6,8 s | `runs/2026-11-17-baseline-pilot/` |
 | baseline (fixed, dense, top-5, Haiku) | dev | 84 | 0,455 | 0,581 | 0,770 | 0,500 | $0,0013 | 7,8 s | `runs/2026-11-17-baseline-dev/` |
+| + hybrid (dense + Türkçe FTS, RRF k=60) | dev | 84 | 0,499 | 0,689 | 0,770 | 0,455 | $0,0014 | 6,7 s | `runs/2026-11-17-hybrid-dev/` |
+| + rerank (ilk 40 → bge-reranker-v2-m3) | dev | 84 | 0,592 | 0,811 | 0,919 | 0,364 | $0,0014 | 9,5 s | `runs/2026-11-17-rerank-dev/` |
 
-Baseline dev'de tip bazında doğruluk: olgusal 0,69 · tablo 0,41 · hesaplama 0,11 · karsilastirma 0,08 · sentez 0,36 · cevapsiz 1,00 · belirsiz 0,50.
+Dev'de tip bazında cevap doğruluğu:
+
+| Konfigürasyon | olgusal | tablo | hesaplama | karsilastirma | sentez | cevapsiz | belirsiz |
+|---|---|---|---|---|---|---|---|
+| baseline | 0,69 | 0,41 | 0,11 | 0,08 | 0,36 | 1,00 | 0,50 |
+| + hybrid | 0,77 | 0,45 | 0,00 | 0,08 | 0,43 | 1,00 | 0,83 |
+| + rerank | 0,77 | 0,55 | 0,11 | 0,31 | 0,63 | 1,00 | 0,83 |
+
+Okuma notları: gecikme cache isabetli sorular hariç ölçülür (baseline dev'de 84 sorunun 54'ü, diğerlerinde 79'u); reranker arama süresine soru başına yaklaşık 1,4 s ekliyor. Dev seti 84 soru olduğu için birkaç puanlık farklar gürültü içinde kalabilir.
 
 **Kullanıcının yapması gerekenler (şimdiye kadar birikenler):**
 - Gold set'i review arayüzünden doğrula: `uv sync --group ml --group app` sonra `uv run streamlit run scripts/review_app.py`. 243 taslak var; hedef 180 soru ve en az %35'i insan yazımı.
