@@ -29,7 +29,14 @@ from kaprag.index.embed import (
     Embedder,
     embed_model_name,
 )
-from kaprag.index.store import VARIANTS, connect, ensure_schema, replace_document, row_counts
+from kaprag.index.store import (
+    VARIANTS,
+    connect,
+    ensure_schema,
+    replace_document,
+    row_counts,
+    table_name,
+)
 
 log = logging.getLogger("build_index")
 
@@ -140,7 +147,7 @@ def main() -> int:
             )
 
         counts = row_counts(conn, args.variant)
-    table = f"chunks_{args.variant}"
+    table = table_name(args.variant)
     for doc_id, n in counts.items():
         log.info("%s rows %s: %d", table, doc_id, n)
     log.info("%s rows total: %d in %d documents", table, sum(counts.values()), len(counts))

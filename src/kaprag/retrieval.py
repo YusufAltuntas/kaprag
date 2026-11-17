@@ -144,7 +144,7 @@ def _search(
         conditions.append(sql.SQL("({})").format(where))
     query = sql.SQL(
         "SELECT chunk_id, doc_id, page_start, page_end, {score} AS score, chunk_type,"
-        " section_path, text FROM {table}{where} ORDER BY {order} LIMIT %(k)s"
+        " section_path, text FROM {table}{where} ORDER BY {order}, chunk_id LIMIT %(k)s"
     ).format(
         score=score,
         table=sql.Identifier(table_name(variant)),

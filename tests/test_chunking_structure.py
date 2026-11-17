@@ -155,12 +155,49 @@ def test_picture_text_is_separated_per_page_with_its_own_type():
     chunks = chunk_structure("d-2023", rows, ws_spans, size=50)
     text = [c for c in chunks if c.chunk_type == "text"]
     pics = [c for c in chunks if c.chunk_type == "picture_text"]
-    assert [c.text for c in text] == ["Highlights\n\nnarrative\nmore narrative"]
+    # picture text interrupts the running text: two text chunks, same heading prefix
+    assert [c.text for c in text] == ["Highlights\n\nnarrative", "Highlights\n\nmore narrative"]
     assert [c.text for c in pics] == ["Highlights\n\n₺1,2 trilyon\nAktif", "Highlights\n\n%38 ROE"]
     assert [(c.page_start, c.page_end) for c in pics] == [(2, 2), (3, 3)]
     # ordinals follow reading order of each chunk's first row
     assert [c.ordinal for c in chunks] == list(range(len(chunks)))
-    assert chunks[0].chunk_type == "text" and chunks[1].chunk_type == "picture_text"
+    assert [c.chunk_type for c in chunks] == ["text", "picture_text", "text", "picture_text"]
+
+
+def test_text_table_text_under_one_heading_gives_three_chunks_in_reading_order():
+    rows = [
+        el("paragraph", "before", 5, ("H",)),
+        el("table", table(2), 6, ("H",)),
+        el("paragraph", "after", 7, ("H",)),
+    ]
+    chunks = chunk_structure("d-2023", rows, ws_spans, size=200)
+    assert [(c.chunk_type, c.page_start, c.page_end) for c in chunks] == [
+        ("text", 5, 5),
+        ("table", 6, 6),
+        ("text", 7, 7),
+    ]
+    assert [c.text for c in (chunks[0], chunks[2])] == ["H\n\nbefore", "H\n\nafter"]
+    assert [c.ordinal for c in chunks] == [0, 1, 2]
+
+
+def test_fragments_between_tables_on_different_pages_do_not_merge():
+    rows = [
+        el("table", table(1), 10, ("H",)),
+        el("paragraph", "frag a", 10, ("H",)),
+        el("table", table(1), 11, ("H",)),
+        el("paragraph", "frag b", 12, ("H",)),
+        el("table", table(1), 13, ("H",)),
+        el("paragraph", "frag c", 14, ("H",)),
+    ]
+    chunks = chunk_structure("d-2023", rows, ws_spans, size=200)
+    texts = [c for c in chunks if c.chunk_type == "text"]
+    assert [(c.text, c.page_start, c.page_end) for c in texts] == [
+        ("H\n\nfrag a", 10, 10),
+        ("H\n\nfrag b", 12, 12),
+        ("H\n\nfrag c", 14, 14),
+    ]
+    assert [c.chunk_type for c in chunks] == ["table", "text"] * 3
+    assert all(c.page_start == c.page_end for c in chunks)
 
 
 def test_multi_page_element_spans_pages():

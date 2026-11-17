@@ -5,7 +5,10 @@ Rules (rows in Docling's reading order):
 - `furniture` rows (page headers/footers) are dropped, as are empty rows.
 - Running text (`paragraph`, `list_item`, `caption`, `other`) is grouped by
   `section_path`: consecutive running-text rows with the same path form one group, and a
-  heading or a path change closes it. A group is packed into chunks of at most `size`
+  heading, a path change, a table or a picture-text row closes it, so a group is
+  contiguous in reading order and its page span covers only its own rows (the text after
+  an interruption starts a new group under the same heading, however small). A group is
+  packed into chunks of at most `size`
   tokens; every chunk starts with the nearest heading (last element of `section_path`)
   as a prefix. A single row longer than the budget is split by tokens. Table captions
   are not separate rows (the parser puts them on the table), so every caption row here
@@ -14,7 +17,8 @@ Rules (rows in Docling's reading order):
   and its caption. A table over the budget is split into row groups, each repeating the
   prefix and the Markdown header rows. All parts keep the table's page span.
 - Rows found inside pictures (`in_picture`; KPI boxes, chart labels) stay out of the
-  running-text groups: they are collected per page into `picture_text` chunks, prefixed
+  running-text groups (and interrupt them): they are collected per page into
+  `picture_text` chunks (ordered by the page's first such row), prefixed
   with the nearest heading of the page's first such row.
 
 Only the nearest heading is used as text, because Docling's levels (and so the deeper
@@ -84,12 +88,14 @@ def chunk_structure(
         if element.type == "furniture" or not element.text.strip():
             continue
         if element.in_picture:
+            close_group()  # text groups stay contiguous in reading order
             pictures.setdefault(
                 element.page, _Group(index, tuple(element.section_path))
             ).rows.append(element)
         elif element.type == "heading":
             close_group()
         elif element.type == "table":
+            close_group()
             pieces.extend(_table_pieces(index, element, token_spans, size))
         elif element.type in RUNNING_TEXT_TYPES:
             path = tuple(element.section_path)
