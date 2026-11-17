@@ -128,6 +128,11 @@ Sabah raporunu doldur.
 | 2026-11-17 | 30 pilot sorusu yalnızca dev split'inden seçilir. | Pilot sonucuna göre taslaklar ayarlanacağı için (eval §7 adım 9) pilot, test split'ine dokunmamalı; §2 yalnızca "tabakalı" diyor |
 | 2026-11-17 | T7, T6'dan önce yapıldı (indeks kurulumu ve Docling sürerken). Review arayüzü kuralları: **Onayla** yalnızca o soruda `verified`/`verified_at` yazar; **Düzenle** tek başına doğrulamaz ("Kaydet" / "Kaydet ve onayla"), doğrulanmış bir soru düzenlenince eski `verified_at` kalır; **Reddet** satırı `questions.jsonl`'dan çıkarıp `eval/gold/rejected.jsonl`'a taşır; kullanıcının eklediği soru `author: human`, `verified: true` kaydedilir ve split'i (tip, banka) tabakasında 60:120 oranını koruyacak şekilde atanır (eşitlikte seed 42'li hash). Streamlit ayrı `app` grubunda (`uv sync --group ml --group app`). | T7'nin T6 çıktısına bağımlılığı yok; şema katı olduğu için "reddedildi" bayrağı yerine ayrı dosya; soruyu PDF'e bakarak yazan kullanıcı zaten doğrulamış olur; CI kurulumu hafif kalsın |
 | 2026-11-17 | T4 indeksleri tam kuruldu (`runs/2026-11-17-index-build/`): `chunks_fixed` 10.488 satır, `chunks_structure` 25.864 satır (metin 16.097, tablo 9.073, grafik metni 694), 12'şer doküman; bge-m3 fp16, tepe 1,16 GB VRAM, kurulum 7,0 + 11,1 dk. "~500 token" bge-m3 tokenizer'ıyla ölçülür. Örnek sorgular (`runs/2026-11-17-index-sample-queries/queries.txt`): dense arama net kâr sorusunda Akbank 2024'ün özet yönetim kurulu raporu ve özet finansal sonuçlar sayfalarını (s.47, s.142), şube sorusunda şube sayısı geçen Garanti sayfalarını, sürdürülebilirlik sorusunda İş Bankası 2025'in ilgili sayfalarını getiriyor; FTS tek başına daha gürültülü (Türkçe kök bulucu "nın", "ne" gibi kısa lexeme'ler üretiyor, Postgres sıralamasında IDF yok). | T4 kabul ölçütü. Alt küme denemesinde tablo sorusunda cevabın bulunduğu tablo sayfası hiçbir kurulumda ilk 5'e girmemişti — baseline'ın ölçeceği zayıflık |
+| 2026-11-17 | Gold set taslağı (T6): 243 soru, hepsi `author: llm`, `verified: false` (olgusal 39, tablo 60, hesaplama 26, karsilastirma 39, sentez 26, cevapsiz 33, belirsiz 20; dev 84 / test 159; 30 pilot, hepsi dev'de) — `runs/2026-11-17-gold-draft/`. Kurallar: esası (konsolide/solo) sayfadan anlaşılmayan TL/% tekil sorular atılır; türetilmiş soruların bütün aritmetiği Python'da; yıllar arası değişim en güncel raporun iki sütunlu sayfasından; `cevapsiz` sorularda `llm_checked` = korpus araması (dense + FTS, RRF) + LLM "cevaplanabilir mi" yargısı geçti demektir (kontrol edilecek sayfa yok); netleştirme isteyen `belirsiz` sorular `llm_checked: false`. | `eval/README.md` §4 konsolide varsayımı yüzünden esası bilinmeyen rakam sistematik yanlış puan üretirdi; §7 adım 3 cevapsız sorular için sayfa kontrolü tarif etmiyor |
+| 2026-11-17 | Gold kanıt sayfaları tamamlandı (eval §3 "bilgi birden çok sayfada geçiyorsa hepsi yazılır"): aynı raporda rakam taraması + dense/FTS adayları, Haiku ile sayfa bazında kontrol; yalnızca kontrolü geçen sayfa eklenir (137 soruda 175 sayfa eklendi; cevaplanabilir soru başına ortalama 3,53 sayfa). **Sınırlama (pooling yanlılığı):** adayların bir kısmı ablation'da ölçülen aynı arama yöntemlerinden geliyor; hiçbir yöntemin getirmediği ve rakamı aynen basmayan sayfalar bilinmiyor. | İlk taslak soru başına tek sayfa yazıyordu; model doğru rakamı başka sayfadan bulunca retrieval/atıf ıskası sayılıyordu (baseline deneme koşusunda q062, q065) |
+| 2026-11-17 | Tolerans sapması: yuvarlak basılmış rakamdan türeyen 4 gold soruda tolerans `eval/README.md` §3 kuralından geniş (q014, q023, q062: adet ±50.000; q092: rel 0,0193). | Kaynak rakam "25,4 milyon" / "2,6 trilyon" gibi yuvarlak; kesin rakamla verilen doğru cevap %1 / ±0 toleransla yanlış sayılırdı. Kullanıcı review'da kesin rakama çevirebilir |
+| 2026-11-17 | Baseline (T8) kuralları: model kaynak **numarası** atıf yapar, pipeline bunu atıf yapılan chunk'ın sayfa aralığındaki `{doc, page}`'lere çevirir (yalnızca modelin atıf alanından; reddetme ve netleştirmede atıf yok); model rakamı basıldığı gibi metin olarak + ölçek kelimeli birimle verir, TL/%/adet normalizasyonu kodda yapılır; üretim hatası `error` olur, uydurma reddetme olmaz. | Model chunk içindeki sayfayı bilemez; "2.202" gibi binlik ayraçlı rakamın sayı olarak okunması 1000 kat hata üretirdi; hesaplar LLM'e bırakılmaz |
+| 2026-11-17 | Pilot zorluk değerlendirmesi (eval §7 adım 9): baseline 30 pilot soruda %51,3 doğruluk (`runs/2026-11-17-baseline-pilot/`) → %15–%85 aralığında, set ne fazla kolay ne fazla zor; T6 taslakları ayarlanmadı. Baseline dev sonucu: 84 soruda %45,5 (`runs/2026-11-17-baseline-dev/`). | Plan T8 |
 
 ## Engeller
 
@@ -143,7 +148,27 @@ Sabah raporunu doldur.
 
 ## Sabah raporu
 
-_(Gece oturumu doldurur: biten görevler, kalanlar, taslak ablation tablosu, kullanıcının yapması gerekenler.)_
+_Ara durum — son güncelleme 2026-11-17 ~21:05. Oturum sürüyor; iş bitince bu bölüm kesinleştirilecek._
+
+**Biten görevler (kabul ölçütleri orkestratör tarafından çalıştırıldı):** T0, T1, T2, T3, T4, T5, T7, T8. T6'nın gold dosyası commit edildi; son review'dan çıkan tek kod düzeltmesi sürüyor (gold dosyasını etkilemiyor).
+
+**Kalanlar:** T9–T12 (P1), T13–T14 (P2), final whole-branch review.
+
+**Taslak sonuçlar — doğrulanmamış gold set (hiçbir soru `verified` değil; README/CV'ye girmez):**
+
+| Konfigürasyon | Split | Soru | Cevap doğruluğu | page_recall@5 | page_recall@10 | Yanlış reddetme | Maliyet/soru (API-eşdeğeri) | p50 gecikme | Run |
+|---|---|---|---|---|---|---|---|---|---|
+| baseline (fixed, dense, top-5, Haiku) | pilot | 30 | 0,513 | 0,679 | 0,857 | 0,458 | $0,0013 | 6,8 s | `runs/2026-11-17-baseline-pilot/` |
+| baseline (fixed, dense, top-5, Haiku) | dev | 84 | 0,455 | 0,581 | 0,770 | 0,500 | $0,0013 | 7,8 s | `runs/2026-11-17-baseline-dev/` |
+
+Baseline dev'de tip bazında doğruluk: olgusal 0,69 · tablo 0,41 · hesaplama 0,11 · karsilastirma 0,08 · sentez 0,36 · cevapsiz 1,00 · belirsiz 0,50.
+
+**Kullanıcının yapması gerekenler (şimdiye kadar birikenler):**
+- Gold set'i review arayüzünden doğrula: `uv sync --group ml --group app` sonra `uv run streamlit run scripts/review_app.py`. 243 taslak var; hedef 180 soru ve en az %35'i insan yazımı.
+- Review'da özellikle bakılacak taslaklar: q015 ve q063 aynı şube sayısı sorusuna 804 ve 805 diyor; q078 ve q079 aynı soru; q092 yuvarlak "2,6 trilyon" kullanıyor (kesin rakam s.204'te); q031'de `basis` İş Bankası'na değil TSKB'ye ait; q167 ve q174'ün kanıt sayfalarından biri konu dışı. Sayfadan üretilen bazı `tablo` soruları fazla ayrıntılı dipnot kalemleri soruyor.
+- Judge kalibrasyonu için 50 cevabı elle etiketle (`eval/README.md` §6); bu gece yapılamadı.
+- İlk `git push`'ta GitHub Actions'ın Windows ve macOS'ta yeşil olduğunu kontrol et (yerelde yalnızca Windows'ta denendi).
+- Repo yolundaki `ş` için karar ver (Engeller'e bakınız): repoyu ASCII bir yola taşımak iki geçici çözümü gereksiz kılar.
 
 ## Görevler
 
@@ -214,7 +239,7 @@ _(Gece oturumu doldurur: biten görevler, kalanlar, taslak ablation tablosu, kul
 - **Commit:** `feat: add Streamlit review app for gold set verification`
 
 ### Task T8 — Baseline RAG (P0)
-- [ ] Tamamlandı
+- [x] Tamamlandı
 - Konfigürasyonla çalışan pipeline: retrieve → Haiku ile üretim. Kaynaklar numaralı verilir; cevap `eval/README.md` §5'teki JSON formatında, sayfa atıflı. Bilgi yoksa reddeder, esası (konsolide/solo) belirtir.
 - `baseline` = `fixed` chunk'lar, yalnızca dense arama, top-5.
 - Önce pilot üzerinde çalıştır ve zorluğu §7 adım 9'a göre değerlendir (gerekirse T6 taslaklarını ayarla), sonra dev'de çalıştır.
