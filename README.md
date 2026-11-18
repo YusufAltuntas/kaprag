@@ -4,6 +4,10 @@
 
 Dört Türk bankasının 2023–2025 entegre faaliyet raporları üzerinde çalışan, Türkçe soruya kaynak sayfası göstererek cevap veren bir doküman asistanı. Projenin asıl çıktısı asistanın kendisi değil, **ölçüm**: her mimari değişikliğin kaliteye, maliyete ve gecikmeye etkisini gösteren bir ablation tablosu (gold set LLM ile üretildi ve LLM ile denetlendi, insan denetimi yapılmadı — bkz. [Sonuçlar](#sonuçlar)).
 
+![Sohbet demosu: atıflı cevap ve tıklanınca açılan kaynak sayfası](docs/chat-demo.png)
+
+*Sohbet demosu (`router` konfigürasyonu, `public` rolü): atıflı cevap, cevabın dayandığı esas ve tıklanınca açılan kaynak sayfası.*
+
 ## Sorun
 
 Banka faaliyet raporları yüzlerce sayfalık PDF'lerdir; rakamların çoğu tablolarda, dipnotlarda ve iki sütunlu sayfa düzenlerinde durur. "Yapı Kredi'nin net kârı 2024'ten 2025'e yüzde kaç değişti?" gibi bir soruya doğru cevap vermek için doğru raporu, doğru sayfayı ve doğru rakamı bulmak, gerekiyorsa hesap yapmak ve bilgi yoksa cevap vermeyi reddetmek gerekir. Bir RAG sisteminde "daha iyi" olduğu iddia edilen her değişikliğin gerçekten işe yarayıp yaramadığı ancak ölçülerek anlaşılır.
@@ -14,7 +18,7 @@ Banka faaliyet raporları yüzlerce sayfalık PDF'lerdir; rakamların çoğu tab
 - **Ayrıştırma:** PyMuPDF (sayfa metni) ve GPU üzerinde Docling (başlıklar, Markdown tablolar, görsel içindeki metin). Tam Docling koşusu RTX 3050 Laptop'ta (4 GB VRAM) 95,6 dakika sürdü: sayfa başına 1,90 sn, en yüksek 1,56 GB VRAM (`runs/2026-11-17-docling-full/`).
 - **İndeks:** Postgres 17 + pgvector, bge-m3 (1024 boyut), HNSW ve Türkçe tam metin (GIN). İki varyant: `chunks_fixed` 10.488 chunk (~500 token, 50 örtüşme) ve Docling yapısına dayalı `chunks_structure` 25.864 chunk (metin 16.097 / tablo 9.073 / görsel metni 694) (`runs/2026-11-17-index-build/`).
 - **Sorgu tarafı:** hibrit arama (dense + Türkçe tam metin, RRF ile birleştirme), bge-reranker-v2-m3 ile yeniden sıralama, `claude-haiku-5-5` ile atıflı cevap. LangGraph router karşılaştırma ve hesaplama sorularını ayrı bir yola gönderir: soru `claude-sonnet-5-5` ile alt sorgulara bölünür, her rakam ayrı aranır, aritmetik Python'da yapılır. Serbest tool-calling yok; bir rakam eksikse ya da birim/esas uyuşmuyorsa sistem cevap vermez ve neyin eksik olduğunu söyler.
-- **Eval:** 240 soruluk gold set (LLM ile üretildi, bağımsız bir LLM denetiminden geçti), deterministik sayısal puanlama, metin cevapları için LLM judge, sayfa düzeyinde retrieval metrikleri, maliyet ve gecikme. Tasarım: [`eval/README.md`](eval/README.md).
+- **Eval:** 237 soruluk gold set (LLM ile üretildi, bağımsız bir LLM denetiminden geçti), deterministik sayısal puanlama, metin cevapları için LLM judge, sayfa düzeyinde retrieval metrikleri, maliyet ve gecikme. Tasarım: [`eval/README.md`](eval/README.md).
 - **Erişim kontrolü (simüle):** `public` / `analyst` / `risk` rolleri ve sızıntı testi — aşağıda.
 - **Arayüzler:** gold set'in insan tarafından doğrulanması için review uygulaması (Streamlit), sohbet demosu (Streamlit) ve `/ask` API'si (FastAPI).
 - **LLM erişimi:** bütün çağrılar ince bir `kaprag.llm` istemcisinden geçer; iki backend var: `claude_code` (geliştiricinin Claude aboneliği, Claude Agent SDK üzerinden; yerel geliştirme ve eval için varsayılan) ve `anthropic_api` (API anahtarı; başkalarına açılan her demo için). Cevaplar diskte önbelleğe alınır, her çağrı JSONL olarak izlenir. Run izleri `scripts/export_langfuse.py` ile Langfuse'a aktarılabilir (aşağıdaki sınırlamalara bakın).
@@ -53,13 +57,13 @@ Paket düzeni (`src/kaprag/`): `parsing`, `chunking`, `index`, `rag` (retrieval,
 
 ## Sonuçlar
 
-**Gold set LLM ile üretildi ve bağımsız bir LLM denetiminden geçti; insan denetimi yapılmadı.** Bağımsız LLM agent'ları taslağı çıkarılmış 243 sorunun hepsini PDF sayfalarının görüntülerine (ve sayfa metnine) karşı denetledi: değer, ölçek/birim, konsolide/solo esas, yıl sütunu, sorunun kendi başına anlaşılırlığı, tekrarlar; türetilmiş soruların aritmetiği; `cevapsiz` sorular için korpus araması (`runs/2026-11-18-gold-audit/`). Sonuç: 224 soru geçti; 16 soru düzeltme gerektirdi — 13'ü düzeltildi, 3'ü insan tarafından yeniden yazılmak üzere işaretlendi; 3 soru reddedildi (2 tekrar, 1 raporda birbiriyle çelişen iki rakam). Ayrıca cevabı içermeyen 25 fazladan kanıt sayfası çıkarıldı. Ölçülen koşular yeniden çalıştırılmadı; kayıtlı çıktıları denetlenmiş gold dosyasına karşı yeniden puanlandı (`scripts/rescore_run.py`, `runs/<özgün>-rescored/` klasörleri; toplam 3 yeni judge çağrısı, gerisi judge önbelleğinden). Aşağıdaki sayılar **denetlenmiş alt kümenin** (`audit.status` `passed` ya da `fixed` olan 237 soru) sayılarıdır; insan tarafından doğrulanmış sayılar değildir — eval tasarımı ([`eval/README.md`](eval/README.md) §3, §6) "verified" sözcüğünü insan incelemesine ayırır ve `verified: true` olan soru sayısı 0'dır. Metin cevaplarını puanlayan judge (`claude-sonnet-5-5`) üretici modelle (`claude-haiku-5-5`) aynı aileden ve henüz insan etiketleriyle kalibre edilmedi.
+**Gold set LLM ile üretildi ve bağımsız bir LLM denetiminden geçti; insan denetimi yapılmadı.** Bağımsız LLM agent'ları taslağı çıkarılmış 243 sorunun hepsini PDF sayfalarının görüntülerine (ve sayfa metnine) karşı denetledi: değer, ölçek/birim, konsolide/solo esas, yıl sütunu, sorunun kendi başına anlaşılırlığı, tekrarlar; türetilmiş soruların aritmetiği; `cevapsiz` sorular için korpus araması (`runs/2026-11-18-gold-audit/`). Sonuç: 224 soru geçti; 16 soru düzeltme gerektirdi — 13'ü düzeltildi, 3'ü yeniden yazılması gerektiği için işaretlendi; 3 soru reddedildi (2 tekrar, 1 raporda birbiriyle çelişen iki rakam). İşaretlenen 3 soru yeniden yazılmadı, sonradan onlar da setten çıkarıldı; gold set'te kalan 237 sorunun hepsi denetimden geçmiş (224) ya da düzeltilmiş (13) sorulardır. Ayrıca cevabı içermeyen 25 fazladan kanıt sayfası çıkarıldı. Ölçülen koşular yeniden çalıştırılmadı; kayıtlı çıktıları denetlenmiş gold dosyasına karşı yeniden puanlandı (`scripts/rescore_run.py`, `runs/<özgün>-rescored/` klasörleri; toplam 3 yeni judge çağrısı, gerisi judge önbelleğinden). Aşağıdaki sayılar bu **denetlenmiş 237 sorunun** (`audit.status` `passed` ya da `fixed`) sayılarıdır; insan tarafından doğrulanmış sayılar değildir — eval tasarımı ([`eval/README.md`](eval/README.md) §3, §6) "verified" sözcüğünü insan incelemesine ayırır ve `verified: true` olan soru sayısı 0'dır. Metin cevaplarını puanlayan judge (`claude-sonnet-5-5`) üretici modelle (`claude-haiku-5-5`) aynı aileden ve henüz insan etiketleriyle kalibre edilmedi.
 
-Gold set: 240 soru — olgusal 39, tablo 57, hesaplama 26, karşılaştırma 39, sentez 26, cevapsız 33, belirsiz 20. Ayrım: dev 84 / test 156; denetlenmiş alt küme: dev 83 / test 154. Sayısal cevaplar judge olmadan, deterministik olarak puanlanır. Bileşen metriklerin tanımları: [`eval/README.md`](eval/README.md) §6. Tablolarda ondalık ayırıcı noktadır.
+Gold set: 237 soru — olgusal 39, tablo 55, hesaplama 26, karşılaştırma 39, sentez 26, cevapsız 33, belirsiz 19. Ayrım: dev 83 / test 154. Reddedilen 6 soru `eval/gold/rejected.jsonl` dosyasında durur. Sayısal cevaplar judge olmadan, deterministik olarak puanlanır. Bileşen metriklerin tanımları: [`eval/README.md`](eval/README.md) §6. Tablolarda ondalık ayırıcı noktadır.
 
-**Cevap doğruluğu**, soru başına puanların ortalamasıdır (yalnızca doğru cevapların payı değildir): `abstain` ve `clarify` soruları sistem beklenen davranışı gösterdiyse 1, göstermediyse 0 alır; cevap beklenen sorular (`answer`, `answer_with_assumption`) davranış kontrolünü geçemezse 0, geçerse içerik puanını alır — sayısal doğruluk (1/0), judge kararı (1/0) ya da `sentez` sorularında kapsanan key-point oranı. Pipeline'ı hata veren soru 0 sayılır; judge kararı eksik olan soru ortalamadan çıkarılır ve sayısı raporlanır. Tanım: [`src/kaprag/eval/metrics.py`](src/kaprag/eval/metrics.py).
+**Cevap doğruluğu**, soru başına puanların ortalamasıdır (yalnızca doğru cevapların payı değildir): `abstain` ve `clarify` soruları sistem beklenen davranışı gösterdiyse 1, göstermediyse 0 alır; cevap beklenen sorular (`answer`, `answer_with_assumption`) davranış kontrolünü geçemezse 0, geçerse içerik puanını alır — sayısal doğruluk (1/0), judge kararı (1/0) ya da `sentez` sorularında kapsanan key-point oranı. Pipeline'ı hata veren soru 0 sayılır; judge kararı eksik olan soru ortalamadan çıkarılır ve sayısı raporlanır. Tanım: [`eval/README.md`](eval/README.md) §6; uygulama: [`src/kaprag/eval/metrics.py`](src/kaprag/eval/metrics.py).
 
-### Ablation — dev split, denetlenmiş alt küme (83 soru; yeniden puanlandı, pipeline yeniden çalıştırılmadı)
+### Ablation — dev split (83 denetlenmiş soru; yeniden puanlandı, pipeline yeniden çalıştırılmadı)
 
 | Konfigürasyon | Ne ekliyor | Cevap doğruluğu | page_recall@5 | page_recall@10 | Kaynak doğruluğu (precision) | Yanlış reddetme | Soru başına maliyet (API-eşdeğeri) | p50 gecikme | Run klasörü |
 |---|---|---|---|---|---|---|---|---|---|
@@ -70,21 +74,21 @@ Gold set: 240 soru — olgusal 39, tablo 57, hesaplama 26, karşılaştırma 39,
 | metadata_filter | + sorudan Haiku ile çıkarılan banka/yıl SQL filtresi | 0.582 | 0.767 | 0.822 | 0.63 | 0.333 | $0.0013 | 10.3 sn | `runs/2026-11-17-metadata-filter-dev-rescored/` |
 | router | LangGraph: basit sorular → `rerank`; karşılaştırma/hesaplama → bölme (Sonnet) → rakam başına arama → Python aritmetiği → sentez | 0.659 | 0.918 | 0.945 | 0.43 | 0.197 | $0.0046 | karşılaştırılamaz (nota bakın) | `runs/2026-11-17-router-dev-rescored/` |
 
-Tipe göre cevap doğruluğu (denetimden sonraki 84 dev sorusunun tamamı, işaretlenmiş 1 soru dahil; parantez içinde soru sayısı; aynı run klasörleri):
+Tipe göre cevap doğruluğu (aynı 83 dev sorusu; parantez içinde soru sayısı; aynı run klasörleri):
 
-| Konfigürasyon | `olgusal` (13) | `tablo` (22) | `hesaplama` (9) | `karsilastirma` (13) | `sentez` (9) | `cevapsiz` (12) | `belirsiz` (6) |
+| Konfigürasyon | `olgusal` (13) | `tablo` (22) | `hesaplama` (9) | `karsilastirma` (13) | `sentez` (9) | `cevapsiz` (12) | `belirsiz` (5) |
 |---|---|---|---|---|---|---|---|
-| baseline | 0.69 | 0.41 | 0.11 | 0.08 | 0.36 | 1.00 | 0.50 |
-| hybrid | 0.77 | 0.45 | 0.00 | 0.08 | 0.43 | 1.00 | 0.83 |
-| rerank | 0.77 | 0.55 | 0.11 | 0.31 | 0.63 | 1.00 | 0.83 |
-| structure | 0.85 | 0.41 | 0.11 | 0.38 | 0.52 | 1.00 | 0.83 |
-| metadata_filter | 0.85 | 0.45 | 0.11 | 0.38 | 0.48 | 1.00 | 0.83 |
-| router | 0.77 | 0.55 | 0.33 | 0.54 | 0.63 | 1.00 | 0.83 |
+| baseline | 0.69 | 0.41 | 0.11 | 0.08 | 0.36 | 1.00 | 0.60 |
+| hybrid | 0.77 | 0.45 | 0.00 | 0.08 | 0.43 | 1.00 | 1.00 |
+| rerank | 0.77 | 0.55 | 0.11 | 0.31 | 0.63 | 1.00 | 1.00 |
+| structure | 0.85 | 0.41 | 0.11 | 0.38 | 0.52 | 1.00 | 1.00 |
+| metadata_filter | 0.85 | 0.45 | 0.11 | 0.38 | 0.48 | 1.00 | 1.00 |
+| router | 0.77 | 0.55 | 0.33 | 0.54 | 0.63 | 1.00 | 1.00 |
 
 Tabloyu okurken:
 
 - **Denetimin etkisi:** denetim dev'de cevap doğruluğunu her konfigürasyonda en fazla 0.01 değiştirdi; dev'deki düzeltmelerin neredeyse hepsi kanıt sayfası düzeltmesiydi ve bunlar cevap puanlarını değil, retrieval ve atıf metriklerini oynatır.
-- **Gürültü:** n = 83'te tek bir oranın standart hatası yaklaşık 5 puandır. rerank / structure / metadata_filter arasındaki 1–3 puanlık farklar gürültü içindedir. Daha büyük adımlar baseline → rerank (≈14 puan) ve rerank → router'dır (≈6 puan, standart hataya yakın; artış hedeflenen iki tipte, hesaplama ve karşılaştırmada toplanıyor). Router'ın basit yoldaki cevapları `rerank` ile aynıdır; fark yalnızca yönlendirilen karşılaştırma/hesaplama sorularından gelir. Tipe göre hücreler dev'de 6–22, test'te 14–35 soruya dayanır.
+- **Gürültü:** n = 83'te tek bir oranın standart hatası yaklaşık 5 puandır. rerank / structure / metadata_filter arasındaki 1–3 puanlık farklar gürültü içindedir. Daha büyük adımlar baseline → rerank (≈14 puan) ve rerank → router'dır (≈6 puan, standart hataya yakın; artış hedeflenen iki tipte, hesaplama ve karşılaştırmada toplanıyor). Router'ın basit yoldaki cevapları `rerank` ile aynıdır; fark yalnızca yönlendirilen karşılaştırma/hesaplama sorularından gelir. Tipe göre hücreler dev'de 5–22, test'te 14–33 soruya dayanır.
 - **Doğru reddetme** dev tablosunda ayrı sütun olarak yok; `cevapsiz` sütunu bunu gösterir (her dev koşusunda 1.00).
 - **structure** cevap doğruluğunu artırmadı; kaynak doğruluğunu (precision) belirgin biçimde artırdı (chunk'ları tek sayfalık). Daha düşük page recall'unun bir kısmı ölçüm etkisi olabilir: fixed chunk'lar birkaç sayfaya yayıldığı için "gold sayfa chunk'ın sayfa aralığında" kuralını daha kolay karşılar. Bu doğrulanmadı.
 - **Router'ın page recall'u:** çok adımlı yoldaki sorularda, her biri planın banka ve yılına göre filtrelenmiş alt sorgu listelerinin sırayla harmanlanmış birleşimi üzerinden hesaplanır; bu yüzden tek sorgulu satırlarla birebir karşılaştırılamaz.
@@ -92,19 +96,19 @@ Tabloyu okurken:
 - **Maliyet** "API-eşdeğeri"dir: token × API liste fiyatı (1M girdi/çıktı token için Haiku 5.5 $0.10 / $0.50, Sonnet 5.5 $2 / $10). Geliştirme Claude aboneliğiyle yapıldı, abonelik dolar göstermez. Judge maliyeti soru başına maliyete dahil değildir.
 - İsteğe bağlı T9e adımı (embedding modelini multilingual-e5-large ile değiştirmek) koşulmadı.
 
-### Test split — denetlenmiş alt küme (154 soru; split bir kez koşuldu, sonra yeniden puanlandı)
+### Test split (154 denetlenmiş soru; split bir kez koşuldu, sonra yeniden puanlandı)
 
 | Konfigürasyon | Cevap doğruluğu | Sayısal doğruluk | page_recall@5 | page_recall@10 | Doğru reddetme | Yanlış reddetme | Soru başına maliyet | p50 / p95 gecikme | Run klasörü |
 |---|---|---|---|---|---|---|---|---|---|
 | baseline | 0.487 | 0.389 | 0.605 | 0.698 | 1.00 | 0.445 | $0.0014 | 6.3 sn / 12.3 sn | `runs/2026-11-17-baseline-test-rescored/` |
 | router (dev'de en iyi) | 0.681 | 0.537 | 0.829 | 0.899 | 1.00 | 0.134 | $0.0048 | 12.0 sn / 25.8 sn | `runs/2026-11-17-router-test-rescored/` |
 
-Tipe göre cevap doğruluğu (denetimden sonraki 156 test sorusunun tamamı, işaretlenmiş 2 soru dahil; aynı run klasörleri):
+Tipe göre cevap doğruluğu (aynı 154 test sorusu; aynı run klasörleri):
 
-| Konfigürasyon | `olgusal` (26) | `tablo` (35) | `hesaplama` (17) | `karsilastirma` (26) | `sentez` (17) | `cevapsiz` (21) | `belirsiz` (14) |
+| Konfigürasyon | `olgusal` (26) | `tablo` (33) | `hesaplama` (17) | `karsilastirma` (26) | `sentez` (17) | `cevapsiz` (21) | `belirsiz` (14) |
 |---|---|---|---|---|---|---|---|
-| baseline | 0.69 | 0.37 | 0.29 | 0.00 | 0.35 | 1.00 | 0.86 |
-| router | 0.81 | 0.43 | 0.65 | 0.58 | 0.53 | 1.00 | 0.93 |
+| baseline | 0.69 | 0.39 | 0.29 | 0.00 | 0.35 | 1.00 | 0.86 |
+| router | 0.81 | 0.45 | 0.65 | 0.58 | 0.53 | 1.00 | 0.93 |
 
 Gecikme baseline'da 154, router'da 125 soruda ölçüldü (geri kalanların bir alt çağrısı önbellekten geldi).
 
@@ -192,7 +196,7 @@ uv run python scripts/run_eval.py --config baseline --split dev
 uv run python scripts/run_eval.py --config router --split dev
 ```
 
-Her koşu `runs/YYYY-MM-DD-<konu>/` altına `summary.json` ve soru başına `traces.jsonl` yazar. Bir `run_eval` koşusu soru başına en az bir üretici çağrısı (dev'de 84), router'da daha fazlası, artı judge çağrıları yapar; `claude_code` backend'inde bunlar abonelik kotasından düşer. Konfigürasyonlar `device: cuda` kullanır (GPU'suz makinede değiştirilmeli, bkz. Gereksinimler). Test split'i yalnızca önemli versiyonlarda koşulur ve `--confirm-test` ister. Gold set'in dağılımı: `uv run python scripts/gold_stats.py`; denetim kararları gold dosyasına `scripts/apply_audit.py` ile uygulanır.
+Her koşu `runs/YYYY-MM-DD-<konu>/` altına `summary.json` ve soru başına `traces.jsonl` yazar. Bir `run_eval` koşusu soru başına en az bir üretici çağrısı (dev'de 83), router'da daha fazlası, artı judge çağrıları yapar; `claude_code` backend'inde bunlar abonelik kotasından düşer. Konfigürasyonlar `device: cuda` kullanır (GPU'suz makinede değiştirilmeli, bkz. Gereksinimler). Test split'i yalnızca önemli versiyonlarda koşulur ve `--confirm-test` ister. Gold set'in dağılımı: `uv run python scripts/gold_stats.py`; denetim kararları gold dosyasına `scripts/apply_audit.py` ile uygulanır.
 
 Biten bir koşuyu yeniden çalıştırmadan güncel gold dosyasına karşı yeniden puanlamak için (sonuç `runs/<klasör>-rescored/` altına yazılır, özgün klasör değişmez; pipeline çalışmaz, yalnızca judge çağrıları yapılır ve önbellekte olanlar önbellekten gelir):
 
@@ -223,15 +227,15 @@ GitHub Actions iş akışı (`.github/workflows/ci.yml`) aynı iki komutu her pu
 
 ## Sınırlamalar
 
-- **Gold set LLM ile üretildi ve LLM ile denetlendi, insan denetimi yapılmadı:** denetim de bir LLM kontrolüdür ve yanılabilir. 3 soru insan tarafından yeniden yazılmak üzere işaretli ve denetlenmiş alt kümenin dışında. Denetim, kontrol ettiği finansal rakamlarda değer, ölçek ya da esas hatası bulmadı; ana kusur, otomatik eklenmiş ve cevabı içermeyen kanıt sayfalarıydı. Sonuçlar insan tarafından doğrulanmış sayılar değildir.
+- **Gold set LLM ile üretildi ve LLM ile denetlendi, insan denetimi yapılmadı:** denetim de bir LLM kontrolüdür ve yanılabilir. Denetimin yeniden yazılması gerektiğini söylediği 3 soru yeniden yazılmadı, setten çıkarıldı. Denetim, kontrol ettiği finansal rakamlarda değer, ölçek ya da esas hatası bulmadı; ana kusur, otomatik eklenmiş ve cevabı içermeyen kanıt sayfalarıydı. Sonuçlar insan tarafından doğrulanmış sayılar değildir.
 - **Judge aynı aileden:** metin cevaplarını puanlayan `claude-sonnet-5-5`, üretici `claude-haiku-5-5` ile aynı model ailesinden; 50 insan etiketli cevapla kalibrasyon henüz yapılmadı.
 - **Erişim kontrolü simüle:** raporlar kamuya açık; roller sabit bir kuralla atanıyor ve ayrıntı düzeyi sayfa seviyesinde.
 - **Geliştirmede abonelik backend'i:** geliştirme ve eval Claude aboneliğiyle (`claude_code`) yapıldı; maliyetler API liste fiyatından hesaplanmış eşdeğerlerdir. Başkalarına açılan her şey için `anthropic_api` backend'i gerekir.
-- **Küçük dev seti:** 83 soruluk denetlenmiş dev alt kümesinde küçük farklar gürültü içinde kalır.
+- **Küçük dev seti:** 83 soruluk dev setinde küçük farklar gürültü içinde kalır.
 - **Garanti:** raporlarında yasal finansal tabloların tamamı yok (diğer üç bankanınkinde var); korpus bu açıdan dengeli değil.
 - **Agent yolunda ana hata kaynağı** tekil rakamların çıkarılması ve normalize edilmesidir.
 - **Havuzlama yanlılığı:** gold set'teki kanıt sayfaları kısmen, değerlendirilen retriever'ların kendisiyle tamamlandı.
-- **Dev/test arasında olgu örtüşmesi:** split (tip, banka) çiftine göre tabakalı yapıldı ve `derived_from` alanını dikkate almıyor; 156 test sorusunun 61'i bir dev sorusuyla aynı kaynak tekil soruyu paylaşıyor, 26 test `karsilastirma` sorusunun 24'ü de bunlara dahil. Karşılaştırma ve hesaplama router'ın hedef tipleri ve router dev'de seçildi; bu yüzden test seti bu tipler için tam olarak ayrı tutulmuş sayılmaz. Zarar gördüğüne dair bir işaret bulunmadı: hiçbir prompt'ta veya pipeline kodunda gold içerik yok ve router'ın test cevap puanı örtüşen sorularda 0.59, geri kalanlarda 0.73 (`runs/2026-11-17-split-overlap/overlap-after-audit.txt`).
+- **Dev/test arasında olgu örtüşmesi:** split (tip, banka) çiftine göre tabakalı yapıldı ve `derived_from` alanını dikkate almıyor; 154 test sorusunun 60'ı bir dev sorusuyla aynı kaynak tekil soruyu paylaşıyor, 26 test `karsilastirma` sorusunun 24'ü de bunlara dahil. Karşılaştırma ve hesaplama router'ın hedef tipleri ve router dev'de seçildi; bu yüzden test seti bu tipler için tam olarak ayrı tutulmuş sayılmaz. Zarar gördüğüne dair bir işaret bulunmadı: hiçbir prompt'ta veya pipeline kodunda gold içerik yok ve router'ın test cevap puanı örtüşen sorularda 0.60, geri kalanlarda 0.73 (`runs/2026-11-17-split-overlap/overlap-237.txt`).
 - **Henüz yapılmayanlar:** Langfuse aktarımı birim testli ve dry-run ile kontrol edildi ama gerçek bir Langfuse sunucusuna karşı çalıştırılmadı; macOS'ta yalnızca CI işi (lint ve GPU/veritabanı/LLM gerektirmeyen testler) çalıştı, pipeline'ın kendisi orada denenmedi.
 
 ## Ayrıntılar nerede
