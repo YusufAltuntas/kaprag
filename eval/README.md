@@ -83,6 +83,7 @@ Pipeline her soruya yapılandırılmış çıktı döner; sayısal puanlama böy
 - **Key-point kapsama** (`sentez`): kapsanan madde oranı (judge).
 - **Kaynak doğruluğu:** atıf yapılan sayfaların gold sayfalarla kesişimi (precision / recall).
 - **Davranış doğruluğu:** `abstain` sorularında doğru reddetme oranı; `answer` sorularında yanlış reddetme oranı; `clarify` ve `answer_with_assumption` sorularında beklenen davranış gösterildi mi. Doğru reddetme ile yanlış reddetme her zaman birlikte raporlanır.
+- **Cevap doğruluğu** (`answer_accuracy`, başlık metriği): soru başına puanların ortalamasıdır; yalnızca doğru cevapların payı değildir. `abstain` ve `clarify` soruları beklenen davranış gösterildiyse 1, gösterilmediyse 0 alır. Cevap beklenen sorular (`answer`, `answer_with_assumption`) davranış kontrolünü geçemezse 0, geçerse içerik puanını alır: sayısal doğruluk (1/0), judge kararı (1/0) ya da `sentez` sorularında key-point kapsama oranı. Pipeline'ı hata veren soru 0 sayılır; judge kararı eksik olan soru ortalamadan çıkarılır ve sayısı raporlanır. Uygulama: `src/kaprag/eval/metrics.py`.
 - **Operasyonel:** soru başına API-eşdeğeri maliyet (token × liste fiyatı), p50/p95 gecikme (cache isabetleri hariç).
 
 **Raporlama:** Her metrik hem tüm sette hem `verified: true` alt kümesinde hesaplanır. README ve CV'ye yalnızca doğrulanmış alt kümenin sayıları girer. Metrikler ayrıca agent denetiminden geçmiş alt kümede (`audited`: `audit.status` `passed`/`fixed`) hesaplanır; agent denetimi insan doğrulaması değildir.
