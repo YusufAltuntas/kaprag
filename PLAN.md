@@ -167,7 +167,8 @@ Kullanıcı gold set'i şimdilik elle doğrulamamaya karar verdi. Bunun yerine b
 
 - **Denetim sonucu (243 taslak):** 224 sorunsuz; 13 düzeltildi (11'inde yalnızca kanıt sayfaları, 3'ünde beklenen cevap metni, birer tanesinde değer ve tolerans); 3'ü insan kararı gerektiriyor ve olduğu gibi bırakıldı (q080, q090, q239 — soru metni belirsiz; denetlenmiş alt kümede değiller); 3'ü reddedildi ve `eval/gold/rejected.jsonl`'a taşındı (q063 ve q078 tekrar, q068'de rapor iki farklı çalışan sayısı veriyor). Ayrıca cevabı içermeyen 25 ek kanıt sayfası çıkarıldı, türetilmiş 9 sorunun kanıtı kaynaklarından yeniden hesaplandı.
 - **Denetimin bulgusu:** kontrol edilen finansal rakamlarda değer, ölçek, esas ya da yıl sütunu hatası çıkmadı; asıl kusur otomatik eklenen ve cevabı içermeyen kanıt sayfalarıydı (en ağırı q091: gösterilen beş sayfanın hiçbirinde rakam yoktu).
-- **Gold set şimdi:** 240 soru (dev 84, test 156); denetlenmiş alt küme 237 soru (dev 83, test 154).
+- **Gold set denetimden hemen sonra:** 240 soru (dev 84, test 156); denetlenmiş alt küme 237 soru (dev 83, test 154).
+- **İşaretli üç soru reddedildi (2026-11-18, kullanıcı onayıyla):** q080, q090 ve q239 yeniden yazılmadı, `eval/gold/rejected.jsonl`'a taşındı (toplam 6 red). **Gold set şimdi 237 soru (dev 83, test 154), hepsi `passed` (224) ya da `fixed` (13)**; tipe göre olgusal 39, tablo 55, hesaplama 26, karşılaştırma 39, sentez 26, cevapsız 33, belirsiz 19. Sekiz koşu 237 soruluk dosyaya karşı bir kez daha yeniden puanlandı (0 yeni judge çağrısı; önceki klasörler `runs/_superseded/` altında). Aşağıdaki denetlenmiş alt küme sayıları değişmedi; değişen yalnızca tipe göre iki hücre: dev `belirsiz` 6 → 5 soru, test `tablo` 35 → 33 soru. q144 ve q156'nın `derived_from` alanında reddedilen q080 hâlâ duruyor (kanıtları kendi satırlarında, puanlamayı etkilemiyor).
 - **Koşular yeniden çalıştırılmadı.** Kayıtlı sistem çıktıları denetlenmiş gold set'e karşı yeniden puanlandı (`scripts/rescore_run.py`, klasörler `runs/<özgün>-rescored/`; toplam 3 yeni judge çağrısı). Test split'i hâlâ bir kez koşulmuş durumda.
 
 **Denetlenmiş alt küme — test (154 soru):**
@@ -188,13 +189,15 @@ Kullanıcı gold set'i şimdilik elle doğrulamamaya karar verdi. Bunun yerine b
 | + metadata_filter | 0,582 | 0,767 | 0,822 | 0,63 | 0,333 | `runs/2026-11-17-metadata-filter-dev-rescored/` |
 | router | 0,659 | 0,918 | 0,945 | 0,43 | 0,197 | `runs/2026-11-17-router-dev-rescored/` |
 
-Denetim cevap doğruluğunu konfigürasyon başına en fazla 0,01–0,02 oynattı; sıralama ve yorumlar değişmedi. Router test koşusundaki judge hatası (q127) yeniden puanlamada giderildi. Dev/test örtüşmesi denetlenmiş sette: 156 test sorusunun 61'i, 26 test `karsilastirma` sorusunun 24'ü; router örtüşenlerde 0,59, diğerlerinde 0,73 (`runs/2026-11-17-split-overlap/overlap-after-audit.txt`).
+Denetim cevap doğruluğunu konfigürasyon başına en fazla 0,01–0,02 oynattı; sıralama ve yorumlar değişmedi. Router test koşusundaki judge hatası (q127) yeniden puanlamada giderildi. Dev/test örtüşmesi 237 soruluk sette: 154 test sorusunun 60'ı, 26 test `karsilastirma` sorusunun 24'ü; router örtüşenlerde 0,60, diğerlerinde 0,73 (`runs/2026-11-17-split-overlap/overlap-237.txt`; 240 soruluk setteki önceki hesap `overlap-after-audit.txt`).
 
 Aşağıdaki gece raporu tabloları denetimden **önceki** taslak set (243 soru) üzerindedir; tarihçe olarak duruyor.
 
 **Push ve CI (2026-11-18):** kullanıcının onayıyla `main` GitHub'a push edildi (`26af115`). Kullanıcı GitHub Actions'ın geçtiğini bildirdi (Windows + macOS matrisi); orkestratör sonucu kendisi göremedi (repo özel, tarayıcı panelinde giriş yoktu). Aşağıdaki gece raporunda "push yok" ve "CI koşmadı" diyen satırlar o anki durumu anlatır.
 
-Hâlâ senin kararını bekleyenler: işaretli üç sorunun yeniden yazılması (q080, q090, q239); istersen 40–50 soruluk bir insan denetimi (README'deki ifade "N soruluk insan denetiminde uyum %X" olarak güçlenir); split kararı; judge kalibrasyonu.
+**Paketleme (2026-11-18):** README'lere sohbet demosunun ekran görüntüsü eklendi (`docs/chat-demo.png`; `router`, `public` rolü, gerçek bir cevap ve açılan kaynak sayfası); "cevap doğruluğu" tanımı `eval/README.md` §6'ya yazıldı; `.claude/launch.json` (review ve sohbet uygulamalarını başlatma ayarı) repoya girdi; README'ler 237 soruluk sete göre güncellendi.
+
+Hâlâ senin kararını bekleyenler: reponun herkese açılması; istersen 40–50 soruluk bir insan denetimi (README'deki ifade "N soruluk insan denetiminde uyum %X" olarak güçlenir); split kararı; judge kalibrasyonu.
 
 **Biten görevler:** planın 15 görevinin hepsi (T0–T14). Her görevin kabul ölçütlerini orkestratör kendisi çalıştırdı; her görev ayrı bir task review'dan, bütün dal en sonda bir whole-branch review'dan geçti. Whole-branch review kritik bulgu çıkarmadı; dört önemli bulgu ve birkaç küçük düzeltme tek bir düzeltme dalgasıyla giderildi (aşağıda "Final review").
 
